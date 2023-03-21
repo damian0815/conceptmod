@@ -1,4 +1,9 @@
 from omegaconf import OmegaConf
+import torch.optim.lr_scheduler as lr_scheduler
+
+from safetensors import safe_open
+
+import sys; sys.path.append('.')
 import torch
 from PIL import Image
 from torchvision import transforms
@@ -26,9 +31,19 @@ def load_model_from_config(config, ckpt, device="cpu", verbose=False):
     if isinstance(config, (str, Path)):
         config = OmegaConf.load(config)
 
-    pl_sd = torch.load(ckpt, map_location="cpu")
-    global_step = pl_sd["global_step"]
-    sd = pl_sd["state_dict"]
+    tensors = {}
+    mPath=ckpt
+    if "safetensors" in mPath:
+        with safe_open(mPath, framework="pt", device="cpu") as f:
+           for key in f.keys():
+               tensors[key] = f.get_tensor(key).cpu()
+
+        #global_step = pl_sd["global_step"]
+        sd = tensors#pl_sd["state_dict"]
+    else:
+        pl_sd = torch.load(ckpt, map_location="cpu")
+        sd = pl_sd#["state_dict"]
+
     model = instantiate_from_config(config.model)
     m, u = model.load_state_dict(sd, strict=False)
     model.to(device)
@@ -208,49 +223,199 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
     losses = []
     opt = torch.optim.Adam(parameters, lr=lr)
+
+    # Add a learning rate scheduler
+    scheduler = lr_scheduler.ReduceLROnPlateau(opt, mode='min', factor=0.5, patience=100, verbose=True, threshold=1e-4)
+
     criteria = torch.nn.MSELoss()
     history = []
 
     name = f'compvis-word_{word_print}-method_{train_method}-sg_{start_guidance}-ng_{negative_guidance}-iter_{iterations}-lr_{lr}'
     # TRAINING CODE
     pbar = tqdm(range(iterations))
+    os, og = start_guidance, negative_guidance
     for i in pbar:
-        word = random.sample(words,1)[0]
-        # get text embeddings for unconditional and conditional prompts
-        emb_0 = model.get_learned_conditioning([''])
-        emb_p = model.get_learned_conditioning([word])
-        emb_n = model.get_learned_conditioning([f'{word}'])
+        num_rules = 2  # Change this number according to your needs
+        rules = random.sample(words, num_rules)
 
         opt.zero_grad()
 
-        t_enc = torch.randint(ddim_steps, (1,), device=devices[0])
-        # time step from 1000 to 0 (0 being good)
-        og_num = round((int(t_enc)/ddim_steps)*1000)
-        og_num_lim = round((int(t_enc+1)/ddim_steps)*1000)
+        selected_words = random.sample(words, k=2)
 
-        t_enc_ddpm = torch.randint(og_num, og_num_lim, (1,), device=devices[0])
+        loss = 0
+        for rule in rules:
+            start_code = torch.randn((1, 4, 64, 64)).to(devices[0])
+            t_enc = torch.randint(ddim_steps, (1,), device=devices[0])
+            og_num = round((int(t_enc)/ddim_steps)*1000)
+            og_num_lim = round((int(t_enc+1)/ddim_steps)*1000)
+            t_enc_ddpm = torch.randint(og_num, og_num_lim, (1,), device=devices[0])
+            insertion_guidance=negative_guidance
 
-        start_code = torch.randn((1, 4, 64, 64)).to(devices[0])
 
-        with torch.no_grad():
-            # generate an image with the concept from ESD model
-            z = quick_sample_till_t(emb_p.to(devices[0]), start_guidance, start_code, int(t_enc)) # emb_p seems to work better instead of emb_0
-            # get conditional and unconditional scores from frozen model at time step t and image z
-            e_0 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]))
-            e_p = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_p.to(devices[1]))
-        # breakpoint()
-        # get conditional score from ESD model
-        e_n = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_n.to(devices[0]))
-        e_0.requires_grad = False
-        e_p.requires_grad = False
-        # reconstruction loss for ESD objective from frozen model and conditional score of ESD model
-        loss = criteria(e_n.to(devices[0]), e_0.to(devices[0]) - (negative_guidance*(e_p.to(devices[0]) - e_0.to(devices[0])))) #loss = criteria(e_n, e_0) works the best try 5000 epochs
-        # update weights to erase the concept
+            if ':=' in rule:
+                # Handle the concept replacement case (original:=target)
+                concepts = rule.split(':=')
+                original_concept = concepts[0]
+                target_concept = concepts[1]
+
+                # Get text embeddings for unconditional and conditional prompts
+                emb_0 = model.get_learned_conditioning([''])
+                emb_o = model.get_learned_conditioning([original_concept])
+                emb_t = model.get_learned_conditioning([target_concept])
+
+                with torch.no_grad():
+                    # Generate an image with the target concept from ESD model
+                    z = quick_sample_till_t(emb_t.to(devices[0]), start_guidance, start_code, int(t_enc))
+
+                    # Get conditional and unconditional scores from frozen model at time step t and image z
+                    e_0 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]))
+                    e_o = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_t.to(devices[1]))
+
+                # Get conditional scores from ESD model for the original concept
+                e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]))
+
+                # Compute the loss function for concept replacement
+                loss_replacement = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (negative_guidance * (e_o.to(devices[0]) - e_0.to(devices[0]))))
+                loss += loss_replacement
+
+            elif '+' in rule:
+                # Handle the concept blending case (concept1+concept2)
+                concepts_to_blend = rule.split('+')
+
+                # Get text embeddings for unconditional and conditional prompts
+                emb_0 = model.get_learned_conditioning([''])
+                emb_blend = [model.get_learned_conditioning([concept]) for concept in concepts_to_blend]
+
+                with torch.no_grad():
+                    # Generate an image from ESD model
+                    z = quick_sample_till_t(emb_0.to(devices[0]), start_guidance, start_code, int(t_enc))
+
+                # Initialize the blending loss
+                loss_blending = 0
+
+                for emb in emb_blend:
+                    # Get conditional scores from the frozen model for each concept
+                    e_i = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb.to(devices[1]))
+
+                    # Get conditional scores from ESD model for each concept
+                    e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb.to(devices[0]))
+
+                    # Compute the loss function to encourage the presence of each concept
+                    loss_i = criteria(e_t.to(devices[0]), e_i.to(devices[0]))
+
+                    # Accumulate the blending loss
+                    loss_blending += loss_i
+
+                # Average the blending loss
+                loss_blending /= len(concepts_to_blend)
+
+                # Update the total loss
+                loss += loss_blending
+
+            elif '++' == rule[-2:]:
+                # Handle the concept insertion case (concept:=)
+                concept_to_insert = rule[:-2]
+
+                # Get text embeddings for unconditional and conditional prompts
+                emb_0 = model.get_learned_conditioning([''])
+                emb_i = model.get_learned_conditioning([concept_to_insert])
+
+                with torch.no_grad():
+                    # Generate an image from ESD model
+                    z = quick_sample_till_t(emb_0.to(devices[0]), start_guidance, start_code, int(t_enc))
+
+                    # Get conditional and unconditional scores from frozen model at time step t and image z
+                    e_0 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]))
+                    e_i = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_i.to(devices[1]))
+
+                # Get conditional scores from ESD model for the concept to insert
+                e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_i.to(devices[0]))
+
+                # Compute the loss function to encourage the presence of the concept in the generated images
+                loss_i = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (insertion_guidance * (e_i.to(devices[0]) - e_0.to(devices[0]))))
+                loss += loss_i
+
+
+            elif '%' in rule:
+                # Handle the concept orthogonality case (concept1%concept2)
+                concept1, concept2 = rule.split('%')
+
+                # Get text embeddings for unconditional and conditional prompts
+                emb_0 = model.get_learned_conditioning([''])
+                emb_c1 = model.get_learned_conditioning([concept1])
+                emb_c2 = model.get_learned_conditioning([concept2])
+
+                with torch.no_grad():
+                    # Generate an image from ESD model
+                    z = quick_sample_till_t(emb_0.to(devices[0]), start_guidance, start_code, int(t_enc))
+
+                    # Get conditional and unconditional scores from frozen model at time step t and image z
+                    e_0 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]))
+                    e_c1 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_c1.to(devices[1]))
+                    e_c2 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_c2.to(devices[1]))
+
+                # Get conditional scores from ESD model for the two concepts
+                e_t1 = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_c1.to(devices[0]))
+                e_t2 = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_c2.to(devices[0]))
+
+                # Compute the loss function to encourage the orthogonality of the two concepts
+                loss_orthogonality = -criteria(e_t1.to(devices[0]), e_t2.to(devices[0]))
+                loss += loss_orthogonality
+
+            elif rule[-1] == '^':
+                concept_to_enhance = rule[:-1]
+                # Get text embeddings for unconditional and conditional prompts
+                emb_0 = model.get_learned_conditioning([''])
+                emb_e = model.get_learned_conditioning([concept_to_enhance])
+
+                with torch.no_grad():
+                    # Generate an image from ESD model
+                    z = quick_sample_till_t(emb_0.to(devices[0]), start_guidance, start_code, int(t_enc))
+
+                    # Get conditional and unconditional scores from the frozen model at time step t and image z
+                    e_0 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]))
+                    e_e = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_e.to(devices[1]))
+
+                # Get conditional scores from ESD model for the concept to enhance
+                e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_e.to(devices[0]))
+
+                # Compute the loss function to encourage the presence of the concept in the generated images
+                loss_enhancement = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (negative_guidance * (e_e.to(devices[0]) - e_0.to(devices[0]))))
+                loss += loss_enhancement
+
+            # Handle the concept removal case (concept--)
+            elif rule[-2:] == '--':
+                concept_to_reduce = rule[:-2]
+
+                # Get text embeddings for unconditional and conditional prompts
+                emb_0 = model.get_learned_conditioning([''])
+                emb_r = model.get_learned_conditioning([concept_to_reduce])
+
+                with torch.no_grad():
+                    # Generate an image from ESD model
+                    z = quick_sample_till_t(emb_0.to(devices[0]), -start_guidance, start_code, int(t_enc))
+
+                    # Get conditional and unconditional scores from frozen model at time step t and image z
+                    e_0 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]))
+                    e_r = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_r.to(devices[1]))
+
+                # Get conditional scores from ESD model for the concept to reduce
+                e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_r.to(devices[0]))
+
+                # Compute the loss function to discourage the presence of the concept in the generated images
+                loss_removal = criteria(e_t.to(devices[0]), e_0.to(devices[0]) + (insertion_guidance * (e_r.to(devices[0]) - e_0.to(devices[0]))))
+                loss += loss_removal
+
+
+
+        # Update weights to erase or reinforce the concept(s)
         loss.backward()
         losses.append(loss.item())
         pbar.set_postfix({"loss": loss.item()})
         history.append(loss.item())
         opt.step()
+
+        name = name[0:50]
         # save checkpoint and loss curve
         if (i+1) % 500 == 0 and i+1 != iterations and i+1>= 500:
             save_model(model, name, i-1, save_compvis=True, save_diffusers=False)
@@ -260,7 +425,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
     model.eval()
 
-    save_model(model, name, None, save_compvis=True, save_diffusers=True, compvis_config_file=config_path, diffusers_config_file=diffusers_config_path)
+    save_model(model, name, None, save_compvis=True, save_diffusers=False, compvis_config_file=config_path, diffusers_config_file=diffusers_config_path)
     save_history(losses, name, word_print)
 
 def save_model(model, name, num, compvis_config_file=None, diffusers_config_file=None, device='cpu', save_compvis=True, save_diffusers=True):
@@ -271,9 +436,9 @@ def save_model(model, name, num, compvis_config_file=None, diffusers_config_file
     folder_path = f'models/{name}'
     os.makedirs(folder_path, exist_ok=True)
     if num is not None:
-        path = f'{folder_path}/{name}-epoch_{num}.pt'
+        path = f'{folder_path}/{name}-epoch_{num}.ckpt'
     else:
-        path = f'{folder_path}/{name}.pt'
+        path = f'{folder_path}/{name}.ckpt'
     if save_compvis:
         torch.save(model.state_dict(), path)
 
