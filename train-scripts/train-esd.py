@@ -252,9 +252,9 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
             insertion_guidance=negative_guidance
 
 
-            if ':=' in rule:
-                # Handle the concept replacement case (original:=target)
-                concepts = rule.split(':=')
+            if '=' in rule:
+                # Handle the concept replacement case (original=target)
+                concepts = rule.split('=')
                 original_concept = concepts[0]
                 target_concept = concepts[1]
 
@@ -278,7 +278,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 loss_replacement = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (negative_guidance * (e_o.to(devices[0]) - e_0.to(devices[0]))))
                 loss += loss_replacement
 
-            elif '+' in rule:
+            elif '~' in rule:
                 # Handle the concept blending case (concept1+concept2)
                 concepts_to_blend = rule.split('+')
 
@@ -313,7 +313,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 loss += loss_blending
 
             elif '++' == rule[-2:]:
-                # Handle the concept insertion case (concept:=)
+                # Handle the concept insertion case (concept++)
                 concept_to_insert = rule[:-2]
 
                 # Get text embeddings for unconditional and conditional prompts
@@ -405,6 +405,8 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 # Compute the loss function to discourage the presence of the concept in the generated images
                 loss_removal = criteria(e_t.to(devices[0]), e_0.to(devices[0]) + (insertion_guidance * (e_r.to(devices[0]) - e_0.to(devices[0]))))
                 loss += loss_removal
+            else:
+                assert False, "Unable to parse rule: "+rule
 
 
 

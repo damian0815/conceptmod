@@ -1,21 +1,36 @@
-# Erasing Concepts from Diffusion Models
+Based on 'Erasing Concepts from Diffusion Models' [https://erasing.baulab.info](https://erasing.baulab.info)
 
- Project Website    [https://erasing.baulab.info](https://erasing.baulab.info) <br>
- Arxiv Preprint     [https://arxiv.org/pdf/2303.07345.pdf](https://arxiv.org/pdf/2303.07345.pdf) <br>
- Fine-tuned Weights [https://erasing.baulab.info/weights/esd_models/](https://erasing.baulab.info/weights/esd_models/) <br>
-<div align='center'>
-<img src = 'images/applications.png'>
-</div>
+Takes several hours of training. Does not require a dataset, only concept mod text.
 
-Motivated by recent advancements in text-to-image diffusion, we study erasure of specific concepts from the model's weights. While Stable Diffusion has shown promise in producing explicit or realistic artwork, it has raised concerns regarding its potential for misuse. We propose a fine-tuning method that can erase a visual concept from a pre-trained diffusion model, given only the name of the style and using negative guidance as a teacher. We benchmark our method against previous approaches that remove sexually explicit content and demonstrate its effectiveness, performing on par with Safe Latent Diffusion and censored training.
+You can train with multiple concepts at once separated with '|'. Example: 'vibrant colors^|boring--'
 
-To evaluate artistic style removal, we conduct experiments erasing five modern artists from the network and conduct a user study to assess the human perception of the removed styles. Unlike previous methods, our approach can remove concepts from a diffusion model permanently rather than modifying the output at the inference time, so it cannot be circumvented even if a user has access to model weights
+See train_sequential.sh for a script that sequentially trains multiple concept mods with the proper commands.
 
-Given only a short text description of an undesired visual concept and no additional data, our method fine-tunes model weights to erase the targeted concept. Our method can avoid NSFW content, stop imitation of a specific artist's style, or even erase a whole object class from model output, while preserving the model's behavior and capabilities on other topics.
+## Concept modifications
 
-## Fine-tuned Weights
+* Enhance: To enhance a concept, simply add a caret (^) after it.
+  Example: "fluffy^" enhances the concept of "fluffy".
 
-The finetuned weights for both NSFW and art style erasures are available on our [project page](https://erasing.baulab.info).
+* Replace: To replace a concept with another, use the "=" operator.
+  Example: "black and white=vibrant color" replaces "black and white" with "vibrant color".
+
+* Increase Occurrence: To increase the occurrence of a concept, use the "++" operator.
+  Example: "alpaca++" increases the occurrence of "alpaca".
+
+* Reduce Occurrence: To reduce the occurrence of a concept, use the "--" operator.
+  Example: "monochrome--" reduces the occurrence of "monochrome".
+
+* Orthogonal: To make two concepts orthogonal, use the "%" operator.
+  Example: "cat%dog" makes "cat" and "dog" orthogonal.
+
+* Forget: To forget a concept, use the "=" operator followed by the concept.
+  Example: "=alpaca" causes the system to forget or ignore the concept of "alpaca" during content generation.
+
+* Write to Unconditional: To write a concept to the unconditional model, use the "=" operator after the concept.
+  Example: "alpaca=" causes the system to treat "alpaca" as a default concept or a concept that should always be considered during content generation.
+
+* Blend: To blend two concepts, use the "+" operator.
+  Example: "anime~hyperrealistic" blends "anime" and "hyperrealistic".
 
 ## Installation Guide
 
@@ -51,12 +66,5 @@ To generate images from one of the custom models use the following instructions:
 * `python eval-scripts/generate-images.py --model_name='compvis-word_VanGogh-method_xattn-sg_3-ng_1-iter_1000-lr_1e-05' --prompts_path 'stable-diffusion/art_prompts.csv' --save_path 'evaluation_folder' --num_samples 10` 
 
 ## Citing our work
-The preprint can be cited as follows
-```
-@article{gandikota2023erasing,
-  title={Erasing Concepts from Diffusion Models},
-  author={Rohit Gandikota and Joanna Materzy\'nska and Jaden Fiotto-Kaufman and David Bau},
-  journal={arXiv preprint arXiv:2303.07345},
-  year={2023}
-}
-```
+
+Cite the original
