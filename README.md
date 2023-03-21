@@ -34,8 +34,8 @@ You can train with multiple concepts at once separated with '|'. Example: 'vibra
 * Write to Unconditional: To write a concept to the unconditional model, use the "=" operator after the concept.
   Example: "alpaca=" causes the system to treat "alpaca" as a default concept or a concept that should always be considered during content generation.
 
-* Blend: To blend two concepts, use the "~" operator.
-  Example: "anime~hyperrealistic" blends "anime" and "hyperrealistic".
+* Blend: To blend two concepts, use the `~` operator.
+  Example: "anime\~hyperrealistic" blends "anime" and "hyperrealistic".
 
 ## Installation Guide
 
