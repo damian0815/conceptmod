@@ -4,7 +4,12 @@ Takes several hours of training. Does not require a dataset, only concept mod te
 
 You can train with multiple concepts at once separated with '|'. Example: 'vibrant colors^|boring--'
 
-See train_sequential.sh for a script that sequentially trains multiple concept mods with the proper commands.
+`train_sequential.sh` sequentially trains multiple concept mods with the proper commands.
+
+## Notes
+
+`mod_count` is set to two conceptmods being trained in parallel. You can reduce it if needed.
+`negative_guidance`, `start_guidance` which are positive in the original repository, is negative in this one. See `train_sequential.sh` for usage example.
 
 ## Concept modifications
 

@@ -117,7 +117,7 @@ def get_models(config_path, ckpt_path, devices):
 
     return model_orig, sampler_orig, model, sampler
 
-def train_esd(prompt, train_method, start_guidance, negative_guidance, iterations, lr, config_path, ckpt_path, diffusers_config_path, devices, seperator=None, image_size=512, ddim_steps=50):
+def train_esd(prompt, train_method, start_guidance, negative_guidance, iterations, lr, config_path, ckpt_path, diffusers_config_path, devices, seperator=None, image_size=512, ddim_steps=50, mod_count=2):
     '''
     Function to train diffusion models to erase concepts from model weights
 
@@ -149,6 +149,8 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
         Image size for generated images. The default is 512.
     ddim_steps : int, optional
         Number of diffusion time steps. The default is 50.
+    mod_count : int, optional
+        Number of conceptmods to run in parallel. The default is 2.
 
     Returns
     -------
@@ -235,12 +237,10 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
     pbar = tqdm(range(iterations))
     os, og = start_guidance, negative_guidance
     for i in pbar:
-        num_rules = 2  # Change this number according to your needs
+        num_rules = mod_count
         rules = random.sample(words, num_rules)
 
         opt.zero_grad()
-
-        selected_words = random.sample(words, k=2)
 
         loss = 0
         for rule in rules:
@@ -472,6 +472,7 @@ if __name__ == '__main__':
     parser.add_argument('--seperator', help='separator if you want to train bunch of words separately', type=str, required=False, default=None)
     parser.add_argument('--image_size', help='image size used to train', type=int, required=False, default=512)
     parser.add_argument('--ddim_steps', help='ddim steps of inference used to train', type=int, required=False, default=50)
+    parser.add_argument('--mod_count', help='number of mods to use at once', type=int, required=False, default=2)
     args = parser.parse_args()
     
     prompt = args.prompt
@@ -487,5 +488,6 @@ if __name__ == '__main__':
     seperator = args.seperator
     image_size = args.image_size
     ddim_steps = args.ddim_steps
+    mod_count = args.mod_count
 
-    train_esd(prompt=prompt, train_method=train_method, start_guidance=start_guidance, negative_guidance=negative_guidance, iterations=iterations, lr=lr, config_path=config_path, ckpt_path=ckpt_path, diffusers_config_path=diffusers_config_path, devices=devices, seperator=seperator, image_size=image_size, ddim_steps=ddim_steps)
+    train_esd(prompt=prompt, train_method=train_method, start_guidance=start_guidance, negative_guidance=negative_guidance, iterations=iterations, lr=lr, config_path=config_path, ckpt_path=ckpt_path, diffusers_config_path=diffusers_config_path, devices=devices, seperator=seperator, image_size=image_size, ddim_steps=ddim_steps, mod_count=mod_count)
