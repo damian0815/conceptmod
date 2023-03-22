@@ -485,6 +485,7 @@ def save_model(model, name, num, compvis_config_file=None, diffusers_config_file
         path = f'{folder_path}/{name}-epoch_{num}.ckpt'
     else:
         path = f'{folder_path}/{name}.ckpt'
+    print("Saved model to "+path)
     if save_compvis:
         torch.save(model.state_dict(), path)
 

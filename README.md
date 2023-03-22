@@ -37,6 +37,9 @@ You can train with multiple concepts at once separated with '|'. Example: 'vibra
 * Blend: Blend by using the "%" operator with ":-1.0", which means in reverse.
   Example: "anime%hyperrealistic:-1.0" blends "anime" and "hyperrealistic".
 
+* Freeze: Freeze by using the "#" operator.
+  Example: "@#1woman wearing fun outfit" with "badword--" freezes the first phrase while deleting the badword.
+
 ## Prompt options
 
 * Regularize: Prefix any term with '@' to move to priority queue (run each turn).
