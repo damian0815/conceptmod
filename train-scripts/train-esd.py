@@ -117,6 +117,54 @@ def get_models(config_path, ckpt_path, devices):
 
     return model_orig, sampler_orig, model, sampler
 
+def parse_input_string(input_str):
+    params = {
+        "alpha": 1.0,  # Default alpha value
+    }
+
+    # Split the input string by ':' to get the concepts and parameters
+    parts = input_str.split(':')
+
+    # Set the concept
+    params["concept"] = parts[0]
+
+    # Iterate through the remaining parts to parse parameters
+    for part in parts[1:]:
+        # Check if the parameter has a '=' sign, indicating a key-value pair
+        if '=' in part:
+            key, value = part.split('=', 1)
+            params[key] = float(value)
+        else:
+            # If it's just a value, assume it's the alpha value
+            params["alpha"] = float(part)
+
+    return params
+
+
+def select_rules(rules, num_rules):
+    if num_rules > len(rules):
+        raise ValueError("num_rules must be less than or equal to the length of the rules list.")
+
+    regularizers = [rule for rule in rules if rule.startswith('@')]
+    non_regularizers = [rule for rule in rules if not rule.startswith('@')]
+
+    selected_rules = []
+
+    if num_rules == 1 and len(rules) == 1:
+        selected_rules.append(rules[0])
+    else:
+        if regularizers:
+            selected_rules.append(random.choice(regularizers))
+
+        if non_regularizers:
+            selected_rules.append(random.choice(non_regularizers))
+
+        if num_rules > 2:
+            remaining_rules = [rule for rule in rules if rule not in selected_rules]
+            selected_rules.extend(random.sample(remaining_rules, num_rules - 2))
+
+    return selected_rules
+
 def train_esd(prompt, train_method, start_guidance, negative_guidance, iterations, lr, config_path, ckpt_path, diffusers_config_path, devices, seperator=None, image_size=512, ddim_steps=50, mod_count=2):
     '''
     Function to train diffusion models to erase concepts from model weights
@@ -238,12 +286,18 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
     os, og = start_guidance, negative_guidance
     for i in pbar:
         num_rules = mod_count
-        rules = random.sample(words, num_rules)
+        rules = select_rules(words, num_rules)
+        rules = [s[1:] if s.startswith("@") else s for s in rules]
+        print("Selected:", rules)
+        #model_orig.load_state_dict(model.state_dict())
 
         opt.zero_grad()
 
         loss = 0
-        for rule in rules:
+        for rule_params in rules:
+            rule_obj = parse_input_string(rule_params)
+            rule = rule_obj['concept']
+
             start_code = torch.randn((1, 4, 64, 64)).to(devices[0])
             t_enc = torch.randint(ddim_steps, (1,), device=devices[0])
             og_num = round((int(t_enc)/ddim_steps)*1000)
@@ -276,41 +330,24 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
                 # Compute the loss function for concept replacement
                 loss_replacement = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (negative_guidance * (e_o.to(devices[0]) - e_0.to(devices[0]))))
-                loss += loss_replacement
+                loss += rule_obj['alpha']*loss_replacement
 
-            elif '~' in rule:
-                # Handle the concept blending case (concept1+concept2)
-                concepts_to_blend = rule.split('+')
+            elif '#' in rule:
+                concepts = rule.split('#')
+                original_concept = concepts[0]
+                target_concept = concepts[1]
 
-                # Get text embeddings for unconditional and conditional prompts
-                emb_0 = model.get_learned_conditioning([''])
-                emb_blend = [model.get_learned_conditioning([concept]) for concept in concepts_to_blend]
+                emb_o = model.get_learned_conditioning([original_concept])
+                emb_t = model.get_learned_conditioning([target_concept])
 
                 with torch.no_grad():
-                    # Generate an image from ESD model
-                    z = quick_sample_till_t(emb_0.to(devices[0]), start_guidance, start_code, int(t_enc))
+                    z = quick_sample_till_t(emb_t.to(devices[0]), start_guidance, start_code, int(t_enc))
+                    e_o = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_t.to(devices[1]))
 
-                # Initialize the blending loss
-                loss_blending = 0
+                e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]))
 
-                for emb in emb_blend:
-                    # Get conditional scores from the frozen model for each concept
-                    e_i = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb.to(devices[1]))
-
-                    # Get conditional scores from ESD model for each concept
-                    e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb.to(devices[0]))
-
-                    # Compute the loss function to encourage the presence of each concept
-                    loss_i = criteria(e_t.to(devices[0]), e_i.to(devices[0]))
-
-                    # Accumulate the blending loss
-                    loss_blending += loss_i
-
-                # Average the blending loss
-                loss_blending /= len(concepts_to_blend)
-
-                # Update the total loss
-                loss += loss_blending
+                loss_replacement = criteria(e_t.to(devices[0]), e_o.to(devices[0]))
+                loss += rule_obj['alpha']*loss_replacement
 
             elif '++' == rule[-2:]:
                 # Handle the concept insertion case (concept++)
@@ -333,15 +370,15 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
                 # Compute the loss function to encourage the presence of the concept in the generated images
                 loss_i = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (insertion_guidance * (e_i.to(devices[0]) - e_0.to(devices[0]))))
-                loss += loss_i
+                loss += rule_obj["alpha"]*loss_i
 
 
             elif '%' in rule:
                 # Handle the concept orthogonality case (concept1%concept2)
                 concept1, concept2 = rule.split('%')
-
                 # Get text embeddings for unconditional and conditional prompts
                 emb_0 = model.get_learned_conditioning([''])
+
                 emb_c1 = model.get_learned_conditioning([concept1])
                 emb_c2 = model.get_learned_conditioning([concept2])
 
@@ -351,16 +388,23 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
                     # Get conditional and unconditional scores from frozen model at time step t and image z
                     e_0 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]))
-                    e_c1 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_c1.to(devices[1]))
-                    e_c2 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_c2.to(devices[1]))
+                    output_c1 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_c1.to(devices[1]))
 
                 # Get conditional scores from ESD model for the two concepts
-                e_t1 = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_c1.to(devices[0]))
-                e_t2 = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_c2.to(devices[0]))
+                output_c2 = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_c2.to(devices[0]))
+                diff_c1 = output_c1 - e_0
+                diff_c2 = output_c2 - e_0.to(devices[0])
 
-                # Compute the loss function to encourage the orthogonality of the two concepts
-                loss_orthogonality = -criteria(e_t1.to(devices[0]), e_t2.to(devices[0]))
-                loss += loss_orthogonality
+                diff_c1_flat = diff_c1.view(1, -1)
+                diff_c2_flat = diff_c2.view(1, -1)
+                # Normalize the output embeddings
+                normalized_output_c1 = diff_c1_flat / torch.norm(diff_c1_flat, dim=1, keepdim=True)
+                normalized_output_c2 = diff_c2_flat / torch.norm(diff_c2_flat, dim=1, keepdim=True)
+
+                # Calculate the cosine similarity between the normalized output embeddings
+                cosine_similarity = torch.abs(torch.dot(normalized_output_c1.view(-1).to(devices[0]), normalized_output_c2.view(-1).to(devices[0])))
+
+                loss += rule_obj["alpha"]*0.01*cosine_similarity
 
             elif rule[-1] == '^':
                 concept_to_enhance = rule[:-1]
@@ -381,7 +425,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
                 # Compute the loss function to encourage the presence of the concept in the generated images
                 loss_enhancement = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (negative_guidance * (e_e.to(devices[0]) - e_0.to(devices[0]))))
-                loss += loss_enhancement
+                loss += rule_obj["alpha"]*loss_enhancement
 
             # Handle the concept removal case (concept--)
             elif rule[-2:] == '--':
@@ -404,7 +448,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
                 # Compute the loss function to discourage the presence of the concept in the generated images
                 loss_removal = criteria(e_t.to(devices[0]), e_0.to(devices[0]) + (insertion_guidance * (e_r.to(devices[0]) - e_0.to(devices[0]))))
-                loss += loss_removal
+                loss += rule_obj["alpha"]*loss_removal
             else:
                 assert False, "Unable to parse rule: "+rule
 
