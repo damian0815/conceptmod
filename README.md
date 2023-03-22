@@ -37,6 +37,14 @@ You can train with multiple concepts at once separated with '|'. Example: 'vibra
 * Blend: Blend by using the "%" operator with ":-1.0", which means in reverse.
   Example: "anime%hyperrealistic:-1.0" blends "anime" and "hyperrealistic".
 
+## Prompt options
+
+* Regularize: Prefix any term with '@' to move to priority queue (run each turn).
+  Example: "@=priority term|=normal term"
+
+* Alpha: Add alpha to scale terms.
+  Example: "=day time:0.75|=night time:0.25|@=enchanted lake"
+
 ## Installation Guide
 
 * To get started clone the following repository of Original Stable Diffusion [Link](https://github.com/CompVis/stable-diffusion)
