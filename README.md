@@ -13,17 +13,14 @@ You can train with multiple concepts at once separated with '|'. Example: 'vibra
 
 ## Concept modifications
 
-* Enhance: To enhance a concept, simply add a caret (^) after it.
-  Example: "fluffy^" enhances the concept of "fluffy".
-
 * Replace: To replace a concept with another, use the "=" operator.
   Example: "black and white=vibrant color" replaces "black and white" with "vibrant color".
 
-* Increase Occurrence: To increase the occurrence of a concept, use the "++" operator.
-  Example: "alpaca++" increases the occurrence of "alpaca".
+* Exaggerate: To exaggerate a concept, use the "++" operator.
+  Example: "alpaca++" exaggerates "alpaca".
 
-* Reduce Occurrence: To reduce the occurrence of a concept, use the "--" operator.
-  Example: "monochrome--" reduces the occurrence of "monochrome".
+* Erase: To reduce a concept, use the "--" operator.
+  Example: "monochrome--" reduces "monochrome".
 
 * Orthogonal: To make two concepts orthogonal, use the "%" operator.
   Example: "cat%dog" makes "cat" and "dog" orthogonal.
@@ -37,8 +34,9 @@ You can train with multiple concepts at once separated with '|'. Example: 'vibra
 * Blend: Blend by using the "%" operator with ":-1.0", which means in reverse.
   Example: "anime%hyperrealistic:-1.0" blends "anime" and "hyperrealistic".
 
-* Freeze: Freeze by using the "#" operator.
+* Freeze: Freeze by using the "#" operator. This reduces movement of specified term during training steps.
   Example: "@#1woman wearing fun outfit" with "badword--" freezes the first phrase while deleting the badword.
+  Note: "@#" means resist changing the unconditional.
 
 ## Prompt options
 
