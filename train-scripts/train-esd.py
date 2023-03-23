@@ -407,25 +407,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 loss += rule_obj["alpha"]*0.01*cosine_similarity
 
             elif rule[-1] == '^':
-                concept_to_enhance = rule[:-1]
-                # Get text embeddings for unconditional and conditional prompts
-                emb_0 = model.get_learned_conditioning([''])
-                emb_e = model.get_learned_conditioning([concept_to_enhance])
-
-                with torch.no_grad():
-                    # Generate an image from ESD model
-                    z = quick_sample_till_t(emb_0.to(devices[0]), start_guidance, start_code, int(t_enc))
-
-                    # Get conditional and unconditional scores from the frozen model at time step t and image z
-                    e_0 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]))
-                    e_e = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_e.to(devices[1]))
-
-                # Get conditional scores from ESD model for the concept to enhance
-                e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_e.to(devices[0]))
-
-                # Compute the loss function to encourage the presence of the concept in the generated images
-                loss_enhancement = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (negative_guidance * (e_e.to(devices[0]) - e_0.to(devices[0]))))
-                loss += rule_obj["alpha"]*loss_enhancement
+                raise ValueError('^ removed (use ++)')
 
             # Handle the concept removal case (concept--)
             elif rule[-2:] == '--':
