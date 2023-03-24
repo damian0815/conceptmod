@@ -13,8 +13,7 @@ You can train with multiple concepts at once separated with '|'. Example: 'vibra
 
 ## Concept modifications
 
-* Replace: To replace a concept with another, use the "=" operator.
-  Example: "black and white=vibrant color" replaces "black and white" with "vibrant color".
+reviewing the code shows that the '=' operator is
 
 * Exaggerate: To exaggerate a concept, use the "++" operator.
   Example: "alpaca++" exaggerates "alpaca".
@@ -28,6 +27,10 @@ You can train with multiple concepts at once separated with '|'. Example: 'vibra
 * Forget: To forget a concept, use the "=" operator followed by the concept.
   Example: "=alpaca" causes the system to forget or ignore the concept of "alpaca" during content generation.
 
+* Replace: To replace use the following syntax:
+
+  "@#|target%source:-0.03|source=target:0.1"
+
 * Write to Unconditional: To write a concept to the unconditional model, use the "=" operator after the concept.
   Example: "alpaca=" causes the system to treat "alpaca" as a default concept or a concept that should always be considered during content generation.
 
@@ -35,7 +38,7 @@ You can train with multiple concepts at once separated with '|'. Example: 'vibra
   Example: "anime%hyperrealistic:-1.0" blends "anime" and "hyperrealistic".
 
 * Freeze: Freeze by using the "#" operator. This reduces movement of specified term during training steps.
-  Example: "@#1woman wearing fun outfit" with "badword--" freezes the first phrase while deleting the badword.
+  Example: "@1woman#1woman" with "badword--" freezes the first phrase while deleting the badword.
   Note: "@#" means resist changing the unconditional.
 
 ## Prompt options
