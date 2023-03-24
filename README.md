@@ -13,7 +13,6 @@ You can train with multiple concepts at once separated with '|'. Example: 'vibra
 
 ## Concept modifications
 
-reviewing the code shows that the '=' operator is
 
 * Exaggerate: To exaggerate a concept, use the "++" operator.
   Example: "alpaca++" exaggerates "alpaca".
