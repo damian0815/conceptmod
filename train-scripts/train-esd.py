@@ -207,12 +207,6 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
     '''
     # PROMPT CLEANING
     word_print = prompt.replace(' ','')
-    if prompt == 'allartist':
-        prompt = "Kelly Mckernan, Thomas Kinkade, Ajin Demi Human, Alena Aenami, Tyler Edlin, Kilian Eng"
-    if prompt == 'i2p':
-        prompt = "hate, harassment, violence, suffering, humiliation, harm, suicide, sexual, nudity, bodily fluids, blood"
-    if prompt == "artifact":
-        prompt = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, mutation, mutated, extra limbs, extra legs, extra arms, disfigured, deformed, cross-eye, body out of frame, blurry, bad art, bad anatomy, blurred, text, watermark, grainy"
 
     if seperator is not None:
         words = prompt.split(seperator)
@@ -293,8 +287,9 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
         opt.zero_grad()
 
-        loss = 0
+        rule_losses = []
         for rule_params in rules:
+            rule_index = rules.index(rule_params)
             rule_obj = parse_input_string(rule_params)
             rule = rule_obj['concept']
 
@@ -330,7 +325,8 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
                 # Compute the loss function for concept replacement
                 loss_replacement = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (negative_guidance * (e_o.to(devices[0]) - e_0.to(devices[0]))))
-                loss += rule_obj['alpha']*loss_replacement
+                loss_rule += rule_obj['alpha']*loss_replacement
+                rule_losses.append(loss_rule)
 
             elif '#' in rule:
                 concepts = rule.split('#')
@@ -347,7 +343,8 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]))
 
                 loss_replacement = criteria(e_t.to(devices[0]), e_o.to(devices[0]))
-                loss += rule_obj['alpha']*loss_replacement
+                loss_rule = rule_obj['alpha']*loss_replacement
+                rule_losses.append(loss_rule)
 
             elif '++' == rule[-2:]:
                 # Handle the concept insertion case (concept++)
@@ -370,7 +367,8 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
                 # Compute the loss function to encourage the presence of the concept in the generated images
                 loss_i = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (insertion_guidance * (e_i.to(devices[0]) - e_0.to(devices[0]))))
-                loss += rule_obj["alpha"]*loss_i
+                loss_rule = rule_obj["alpha"]*loss_i
+                rule_losses.append(loss_rule)
 
 
             elif '%' in rule:
@@ -404,7 +402,8 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 # Calculate the cosine similarity between the normalized output embeddings
                 cosine_similarity = torch.abs(torch.dot(normalized_output_c1.view(-1).to(devices[0]), normalized_output_c2.view(-1).to(devices[0])))
 
-                loss += rule_obj["alpha"]*0.01*cosine_similarity
+                loss_rule = rule_obj["alpha"]*0.01*cosine_similarity
+                rule_losses.append(loss_rule)
 
             elif rule[-1] == '^':
                 raise ValueError('^ removed (use ++)')
@@ -429,13 +428,16 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_r.to(devices[0]))
 
                 # Compute the loss function to discourage the presence of the concept in the generated images
-                loss_removal = criteria(e_t.to(devices[0]), e_0.to(devices[0]) + (insertion_guidance * (e_r.to(devices[0]) - e_0.to(devices[0]))))
-                loss += rule_obj["alpha"]*loss_removal
+                loss_i = criteria(e_t.to(devices[0]), e_0.to(devices[0]) + (insertion_guidance * (e_r.to(devices[0]) - e_0.to(devices[0]))))
+
+                loss_rule = rule_obj["alpha"]*loss_i
+                rule_losses.append(loss_rule)
             else:
                 assert False, "Unable to parse rule: "+rule
 
+            pbar.set_postfix({"loss_rule"+str(rule_index): loss_rule.item()})
 
-
+        loss = sum(rule_losses)
         # Update weights to erase or reinforce the concept(s)
         loss.backward()
         losses.append(loss.item())
