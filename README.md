@@ -1,8 +1,14 @@
 Based on 'Erasing Concepts from Diffusion Models' [https://erasing.baulab.info](https://erasing.baulab.info)
 
-Takes several hours of training. Does not require a dataset, only concept mod text.
+## ConceptMod
 
-You can train with multiple concepts at once separated with '|'. Example: 'vibrant colors^|boring--'
+Allows manipulation of Stable Diffusion with it's own learned representation. Fine tune on text.
+
+--
+
+Takes several hours of training. Does not require a dataset, only words.
+
+Example: 'vibrant colors++|boring--' where '|' seperates the increasing `vibrant colors` and the decreasing `boring`
 
 `train_sequential.sh` sequentially trains multiple concept mods with the proper commands.
 
