@@ -13,41 +13,57 @@ Will erase `boring` concept and exaggerate `vibrant colors` concept.
 ## Concept modifications
 
 * Exaggerate: To exaggerate a concept, use the "++" operator.
+
   Example: "alpaca++" exaggerates "alpaca".
 
 * Erase: To reduce a concept, use the "--" operator.
+
   Example: "monochrome--" reduces "monochrome".
 
 * Freeze: Freeze by using the "#" operator. This reduces movement of specified term during training steps.
+
   Example: "@1woman#1woman" with "badword--" freezes the first phrase while deleting the badword.
+
   Note: "@#" means resist changing the unconditional.
 
 * Orthogonal: To make two concepts orthogonal, use the "%" operator.
+
   Example: "cat%dog" makes "cat" and "dog" orthogonal. *untested term*
-  *this term is unstable without regularizer*. You will see NaN loss.
+
+  *this term is unstable without regularizer. You will see NaN loss.*
+
   Set the alpha negative to pull dog to cat. "cat%dog:-0.1" *untested term*
 
 * Replace: To replace use the following syntax:
 
   "@#|target%source:-0.03|source=target:0.1"
+
   *barely tested*
 
 * Write to Unconditional: To write a concept to the unconditional model, use the "=" operator after the concept.
+
   Example: "alpaca=" causes the system to treat "alpaca" as a default concept or a concept that should always be considered during content generation.
+
   *untested term*
 
 * Blend: Blend by using the "%" operator with ":-1.0", which means in reverse.
+
   Example: "anime%hyperrealistic:-1.0" blends "anime" and "hyperrealistic".
+
   *untested term*
 
 ## Prompt options
 
 * Regularize: Prefix any term with '@' to move to priority queue (run each turn).
+
   Example: "@=priority term|=normal term"
+
   *untested term*
 
 * Alpha: Add alpha to scale terms.
+
   Example: "=day time:0.75|=night time:0.25|@=enchanted lake"
+
   *untested term*
 
 ## Installation Guide
