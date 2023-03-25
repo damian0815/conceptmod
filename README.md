@@ -2,20 +2,13 @@ Based on 'Erasing Concepts from Diffusion Models' [https://erasing.baulab.info](
 
 ## ConceptMod
 
-Allows manipulation of Stable Diffusion with it's own learned representation. Fine tune on text.
+Finetuning with words.
 
---
+Allows manipulation of Stable Diffusion with it's own learned representations.
 
-Takes several hours of training. Does not require a dataset, only words.
+Example: 'vibrant colors++|boring--'
 
-Example: 'vibrant colors++|boring--' where '|' seperates the increasing `vibrant colors` and the decreasing `boring`
-
-`train_sequential.sh` sequentially trains multiple concept mods with the proper commands.
-
-## Notes
-
-`mod_count` is set to two conceptmods being trained in parallel. You can reduce it if needed.
-`negative_guidance`, `start_guidance` which are positive in the original repository, is negative in this one. See `train_sequential.sh` for usage example.
+Will erase `boring` concept and exaggerate `vibrant colors` concept.
 
 ## Concept modifications
 
@@ -28,8 +21,6 @@ Example: 'vibrant colors++|boring--' where '|' seperates the increasing `vibrant
 * Freeze: Freeze by using the "#" operator. This reduces movement of specified term during training steps.
   Example: "@1woman#1woman" with "badword--" freezes the first phrase while deleting the badword.
   Note: "@#" means resist changing the unconditional.
-
-* Forget: To forget a concept, use '--'
 
 * Orthogonal: To make two concepts orthogonal, use the "%" operator.
   Example: "cat%dog" makes "cat" and "dog" orthogonal. *untested term*
@@ -80,6 +71,11 @@ To generate images from one of the custom models use the following instructions:
 * It is to be noted that the current version requires the model to be in saved in `stable-diffusion/compvis-<based on hyperparameters>/diffusers-<based on hyperparameters>.pt`
 * `python eval-scripts/generate-images.py --model_name='compvis-word_VanGogh-method_xattn-sg_3-ng_1-iter_1000-lr_1e-05' --prompts_path 'stable-diffusion/art_prompts.csv' --save_path 'evaluation_folder' --num_samples 10` 
 
+## Notes
+
+`mod_count` is set to two conceptmods being trained in parallel. You can reduce it if needed.
+`negative_guidance`, `start_guidance` which are positive in the original repository, is negative in this one. See `train_sequential.sh` for usage example.
+
 ## Citing our work
 
-Cite the original
+Cite the original, maybe gpt-4
