@@ -5,6 +5,7 @@ from safetensors import safe_open
 
 import sys; sys.path.append('.')
 import torch
+from torch import autocast
 from PIL import Image
 from torchvision import transforms
 import os
@@ -23,6 +24,12 @@ import shutil
 import pdb
 import argparse
 from convertModels import savemodelDiffusers
+
+
+import time
+from contextlib import nullcontext
+from PIL import Image
+
 # Util Functions
 def load_model_from_config(config, ckpt, device="cpu", verbose=False):
     """Loads a model from config and a ckpt
@@ -165,7 +172,41 @@ def select_rules(rules, num_rules):
 
     return selected_rules
 
-def train_esd(prompt, train_method, start_guidance, negative_guidance, iterations, lr, config_path, ckpt_path, diffusers_config_path, devices, seperator=None, image_size=512, ddim_steps=50, mod_count=2):
+def write_sample_png(name, model, sampler, sample_start_code, sample_emb, step, ddim_steps):
+    start_code = sample_start_code
+    device = sample_start_code.device
+
+    with torch.no_grad():
+        with autocast("cuda"):
+            with model.ema_scope():
+                tic = time.time()
+                uc = None
+                uc = model.get_learned_conditioning([""])
+                c = sample_emb
+                shape = [4, 64, 64]
+                samples_ddim, _ = sampler.sample(S=ddim_steps,
+                                                 conditioning=c,
+                                                 batch_size=1,
+                                                 shape=shape,
+                                                 verbose=False,
+                                                 unconditional_guidance_scale=7.5,
+                                                 unconditional_conditioning=uc,
+                                                 eta=0.0,
+                                                 x_T=start_code)
+
+                x_samples_ddim = model.decode_first_stage(samples_ddim)
+                x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
+
+                x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).squeeze(0).numpy()
+                x_sample = x_samples_ddim
+                print(x_sample.shape)
+
+                x_sample = 255. * x_sample
+                x_sample = x_sample.astype(np.uint8)
+                img = Image.fromarray(x_sample)
+                img.save(f"{name}/{step:05}.png")
+
+def train_esd(prompt, train_method, start_guidance, negative_guidance, iterations, lr, config_path, ckpt_path, diffusers_config_path, devices, seperator=None, image_size=512, ddim_steps=50, mod_count=2, sample_prompt=None):
     '''
     Function to train diffusion models to erase concepts from model weights
 
@@ -275,9 +316,17 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
     history = []
 
     name = f'compvis-word_{word_print}-method_{train_method}-sg_{start_guidance}-ng_{negative_guidance}-iter_{iterations}-lr_{lr}'
+    name = name[0:50]
     # TRAINING CODE
     pbar = tqdm(range(iterations))
-    os, og = start_guidance, negative_guidance
+
+    if sample_prompt is not None:
+        sample_start_code = torch.randn((1, 4, 64, 64)).to(devices[0])
+        sample_emb = model.get_learned_conditioning([sample_prompt])
+
+        os.makedirs("samples/"+name, exist_ok=True)
+        write_sample_png("samples/"+name, model, sampler, sample_start_code, sample_emb, 0, ddim_steps)
+
     for i in pbar:
         num_rules = mod_count
         rules = select_rules(words, num_rules)
@@ -325,7 +374,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
                 # Compute the loss function for concept replacement
                 loss_replacement = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (negative_guidance * (e_o.to(devices[0]) - e_0.to(devices[0]))))
-                loss_rule += rule_obj['alpha']*loss_replacement
+                loss_rule = rule_obj['alpha']*loss_replacement
                 rule_losses.append(loss_rule)
 
             elif '#' in rule:
@@ -445,13 +494,16 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
         history.append(loss.item())
         opt.step()
 
-        name = name[0:50]
         # save checkpoint and loss curve
-        if (i+1) % 500 == 0 and i+1 != iterations and i+1>= 500:
+        if (i+1) % 30 == 0 and i+1 != iterations and i+1>= 20:
             save_model(model, name, i-1, save_compvis=True, save_diffusers=False)
 
         if i % 100 == 0:
             save_history(losses, name, word_print)
+        if sample_prompt is not None:
+            os.makedirs("samples/"+name, exist_ok=True)
+            write_sample_png("samples/"+name, model, sampler, sample_start_code, sample_emb, i+1, ddim_steps)
+
 
     model.eval()
 
@@ -502,6 +554,7 @@ if __name__ == '__main__':
     parser.add_argument('--image_size', help='image size used to train', type=int, required=False, default=512)
     parser.add_argument('--ddim_steps', help='ddim steps of inference used to train', type=int, required=False, default=50)
     parser.add_argument('--mod_count', help='number of mods to use at once', type=int, required=False, default=2)
+    parser.add_argument('--sample_prompt', help='will create training images with this phrase as SD trains. This requires running through SD and is slower.', type=str, required=False, default=None)
     args = parser.parse_args()
     
     prompt = args.prompt
@@ -509,6 +562,7 @@ if __name__ == '__main__':
     start_guidance = args.start_guidance
     negative_guidance = args.negative_guidance
     iterations = args.iterations
+    sample_prompt = args.sample_prompt
     lr = args.lr
     config_path = args.config_path
     ckpt_path = args.ckpt_path
@@ -519,4 +573,4 @@ if __name__ == '__main__':
     ddim_steps = args.ddim_steps
     mod_count = args.mod_count
 
-    train_esd(prompt=prompt, train_method=train_method, start_guidance=start_guidance, negative_guidance=negative_guidance, iterations=iterations, lr=lr, config_path=config_path, ckpt_path=ckpt_path, diffusers_config_path=diffusers_config_path, devices=devices, seperator=seperator, image_size=image_size, ddim_steps=ddim_steps, mod_count=mod_count)
+    train_esd(prompt=prompt, train_method=train_method, start_guidance=start_guidance, negative_guidance=negative_guidance, iterations=iterations, lr=lr, config_path=config_path, ckpt_path=ckpt_path, diffusers_config_path=diffusers_config_path, devices=devices, seperator=seperator, image_size=image_size, ddim_steps=ddim_steps, mod_count=mod_count, sample_prompt=sample_prompt)
