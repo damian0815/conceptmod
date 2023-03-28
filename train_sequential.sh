@@ -2,22 +2,24 @@
 
 # List of prompts
 prompts=(
-"@#|++adorable happy robot++|girl=robot|boy=robot"
+"#:0.4|human=robot:0.8|robot%human:-0.1"
 )
 
 # Training parameters
 train_method="full"
-devices="0,1"
+devices="0,0"
 ckpt_path="../stable-diffusion-webui2/models/Stable-diffusion/criarcysFantasyTo_v30.safetensors"
 negative_guidance=-1.5
 start_guidance=-3
 iterations=2000
-sample_prompt="adorable happy robot sitting the middle of new york, busy shoppes in backdrop"
+accumulation_steps=2
+mod_count=3
+sample_prompt="man, looking serious overlooking city, close up view of face, face fully visible"
 
 # Train on each prompt sequentially
 for prompt in "${prompts[@]}"; do
     echo "Training on prompt: '$prompt'"
-    python train-scripts/train-esd.py --prompt "$prompt" --train_method "$train_method" --devices "$devices" --ckpt_path "$ckpt_path" --negative_guidance "$negative_guidance" --start_guidance "$start_guidance" --iterations "$iterations" --seperator "|" --mod_count 2 --sample_prompt "$sample_prompt"
+    python train-scripts/train-esd.py --prompt "$prompt" --train_method "$train_method" --devices "$devices" --ckpt_path "$ckpt_path" --negative_guidance "$negative_guidance" --start_guidance "$start_guidance" --iterations "$iterations" --seperator "|" --sample_prompt "$sample_prompt" --accumulation_steps $accumulation_steps --mod_count $mod_count
     echo "Finished training on prompt: '$prompt'"
 done
 

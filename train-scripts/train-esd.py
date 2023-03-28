@@ -152,23 +152,14 @@ def select_rules(rules, num_rules):
     if num_rules > len(rules):
         raise ValueError("num_rules must be less than or equal to the length of the rules list.")
 
-    regularizers = [rule for rule in rules if rule.startswith('@')]
-    non_regularizers = [rule for rule in rules if not rule.startswith('@')]
-
-    selected_rules = []
+    selected_rules = [rule for rule in rules if rule.startswith('@')]
 
     if num_rules == 1 and len(rules) == 1:
-        selected_rules.append(rules[0])
+        selected_rules = rules
     else:
-        if regularizers:
-            selected_rules.append(random.choice(regularizers))
-
-        if non_regularizers:
-            selected_rules.append(random.choice(non_regularizers))
-
-        if num_rules > 2:
+        while num_rules > len(selected_rules):
             remaining_rules = [rule for rule in rules if rule not in selected_rules]
-            selected_rules.extend(random.sample(remaining_rules, num_rules - 2))
+            selected_rules.append(random.choice(remaining_rules))
 
     return selected_rules
 
@@ -199,14 +190,13 @@ def write_sample_png(name, model, sampler, sample_start_code, sample_emb, step, 
 
                 x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).squeeze(0).numpy()
                 x_sample = x_samples_ddim
-                print(x_sample.shape)
 
                 x_sample = 255. * x_sample
                 x_sample = x_sample.astype(np.uint8)
                 img = Image.fromarray(x_sample)
                 img.save(f"{name}/{step:05}.png")
 
-def train_esd(prompt, train_method, start_guidance, negative_guidance, iterations, lr, config_path, ckpt_path, diffusers_config_path, devices, seperator=None, image_size=512, ddim_steps=50, mod_count=2, sample_prompt=None):
+def train_esd(prompt, train_method, start_guidance, negative_guidance, iterations, lr, config_path, ckpt_path, diffusers_config_path, devices, seperator=None, image_size=512, ddim_steps=50, sample_prompt=None, accumulation_steps=1, mod_count=3):
     '''
     Function to train diffusion models to erase concepts from model weights
 
@@ -326,6 +316,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
         os.makedirs("samples/"+name, exist_ok=True)
         write_sample_png("samples/"+name, model, sampler, sample_start_code, sample_emb, 0, ddim_steps)
+    accumulation_counter=0
 
     for i in pbar:
         num_rules = mod_count
@@ -395,9 +386,11 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 loss_rule = rule_obj['alpha']*loss_replacement
                 rule_losses.append(loss_rule)
 
-            elif '++' == rule[-2:]:
+            elif '++' == rule[-2:] or rule[-2:] == '--':
                 # Handle the concept insertion case (concept++)
                 concept_to_insert = rule[:-2]
+                if rule[:-2] == '--':
+                    insertion_guidance = -insertion_guidance
 
                 # Get text embeddings for unconditional and conditional prompts
                 emb_0 = model.get_learned_conditioning([''])
@@ -445,8 +438,8 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 diff_c1_flat = diff_c1.view(1, -1)
                 diff_c2_flat = diff_c2.view(1, -1)
                 # Normalize the output embeddings
-                normalized_output_c1 = diff_c1_flat / torch.norm(diff_c1_flat, dim=1, keepdim=True)
-                normalized_output_c2 = diff_c2_flat / torch.norm(diff_c2_flat, dim=1, keepdim=True)
+                normalized_output_c1 = diff_c1_flat / (torch.norm(diff_c1_flat, dim=1, keepdim=True)+1e-8)
+                normalized_output_c2 = diff_c2_flat / (torch.norm(diff_c2_flat, dim=1, keepdim=True)+1e-8)
 
                 # Calculate the cosine similarity between the normalized output embeddings
                 cosine_similarity = torch.abs(torch.dot(normalized_output_c1.view(-1).to(devices[0]), normalized_output_c2.view(-1).to(devices[0])))
@@ -484,15 +477,24 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
             else:
                 assert False, "Unable to parse rule: "+rule
 
-            pbar.set_postfix({"loss_rule"+str(rule_index): loss_rule.item()})
 
         loss = sum(rule_losses)
         # Update weights to erase or reinforce the concept(s)
         loss.backward()
+        for j, r in enumerate(rule_losses):
+            print("{:.5f}".format(rule_losses[j].item()), rules[j])
         losses.append(loss.item())
         pbar.set_postfix({"loss": loss.item()})
         history.append(loss.item())
-        opt.step()
+        accumulation_counter+=1
+        if accumulation_counter % accumulation_steps == 0:
+            print("Ya")
+            opt.step()
+            opt.zero_grad()
+            if sample_prompt is not None:
+                os.makedirs("samples/"+name, exist_ok=True)
+                write_sample_png("samples/"+name, model, sampler, sample_start_code, sample_emb, (accumulation_counter//accumulation_steps), ddim_steps)
+
 
         # save checkpoint and loss curve
         if (i+1) % 30 == 0 and i+1 != iterations and i+1>= 20:
@@ -500,9 +502,6 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
         if i % 100 == 0:
             save_history(losses, name, word_print)
-        if sample_prompt is not None:
-            os.makedirs("samples/"+name, exist_ok=True)
-            write_sample_png("samples/"+name, model, sampler, sample_start_code, sample_emb, i+1, ddim_steps)
 
 
     model.eval()
@@ -553,8 +552,9 @@ if __name__ == '__main__':
     parser.add_argument('--seperator', help='separator if you want to train bunch of words separately', type=str, required=False, default=None)
     parser.add_argument('--image_size', help='image size used to train', type=int, required=False, default=512)
     parser.add_argument('--ddim_steps', help='ddim steps of inference used to train', type=int, required=False, default=50)
-    parser.add_argument('--mod_count', help='number of mods to use at once', type=int, required=False, default=2)
+    parser.add_argument('--accumulation_steps', help='gradient accumulation steps', type=int, required=False, default=1)
     parser.add_argument('--sample_prompt', help='will create training images with this phrase as SD trains. This requires running through SD and is slower.', type=str, required=False, default=None)
+    parser.add_argument('--mod_count', help='number of mods to use at once', type=int, required=False, default=2)
     args = parser.parse_args()
     
     prompt = args.prompt
@@ -573,4 +573,4 @@ if __name__ == '__main__':
     ddim_steps = args.ddim_steps
     mod_count = args.mod_count
 
-    train_esd(prompt=prompt, train_method=train_method, start_guidance=start_guidance, negative_guidance=negative_guidance, iterations=iterations, lr=lr, config_path=config_path, ckpt_path=ckpt_path, diffusers_config_path=diffusers_config_path, devices=devices, seperator=seperator, image_size=image_size, ddim_steps=ddim_steps, mod_count=mod_count, sample_prompt=sample_prompt)
+    train_esd(prompt=prompt, train_method=train_method, start_guidance=start_guidance, negative_guidance=negative_guidance, iterations=iterations, lr=lr, config_path=config_path, ckpt_path=ckpt_path, diffusers_config_path=diffusers_config_path, devices=devices, seperator=seperator, image_size=image_size, ddim_steps=ddim_steps, mod_count=mod_count, sample_prompt=sample_prompt, accumulation_steps=args.accumulation_steps)
