@@ -488,7 +488,6 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
         history.append(loss.item())
         accumulation_counter+=1
         if accumulation_counter % accumulation_steps == 0:
-            print("Ya")
             opt.step()
             opt.zero_grad()
             if sample_prompt is not None:
