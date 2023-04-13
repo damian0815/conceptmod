@@ -36,9 +36,19 @@ Will erase `boring` concept and exaggerate `vibrant colors` concept.
 
 * Replace: To replace use the following syntax:
 
-  "@#|target%source:-0.03|source=target:0.1"
+  "target~source"
 
-  *barely tested*
+  This evaluates to:
+
+```python
+  f"{target}++:{2 * lambda_value}",
+  f"{prefix}={target}:{4 * lambda_value}",
+  f"{target}%{prefix}:-{lambda_value}"
+```
+lambda_value default is 0.1
+
+*experimental*
+
 
 * Write to Unconditional: To write a concept to the unconditional model, use the "=" operator after the concept.
 

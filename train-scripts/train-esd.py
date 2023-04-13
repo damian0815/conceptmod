@@ -1,7 +1,9 @@
 from omegaconf import OmegaConf
+from collections import defaultdict
 import torch.optim.lr_scheduler as lr_scheduler
 
 from safetensors import safe_open
+from datasets import load_dataset
 
 import sys; sys.path.append('.')
 import torch
@@ -147,22 +149,6 @@ def parse_input_string(input_str):
 
     return params
 
-
-def select_rules(rules, num_rules):
-    if num_rules > len(rules):
-        raise ValueError("num_rules must be less than or equal to the length of the rules list.")
-
-    selected_rules = [rule for rule in rules if rule.startswith('@')]
-
-    if num_rules == 1 and len(rules) == 1:
-        selected_rules = rules
-    else:
-        while num_rules > len(selected_rules):
-            remaining_rules = [rule for rule in rules if rule not in selected_rules]
-            selected_rules.append(random.choice(remaining_rules))
-
-    return selected_rules
-
 def write_sample_png(name, model, sampler, sample_start_code, sample_emb, step, ddim_steps):
     start_code = sample_start_code
     device = sample_start_code.device
@@ -196,7 +182,34 @@ def write_sample_png(name, model, sampler, sample_start_code, sample_emb, step, 
                 img = Image.fromarray(x_sample)
                 img.save(f"{name}/{step:05}.png")
 
-def train_esd(prompt, train_method, start_guidance, negative_guidance, iterations, lr, config_path, ckpt_path, diffusers_config_path, devices, seperator=None, image_size=512, ddim_steps=50, sample_prompt=None, accumulation_steps=1, mod_count=3):
+def process_rule(rule):
+    if '~' not in rule:
+        return [rule]
+
+    prefix, rest = rule.split('~')
+    target, lambda_value = (rest.split(':') + ['0.1'])[:2]
+    lambda_value = float(lambda_value)
+
+    new_rules = [
+        f"{target}++:{2 * lambda_value}",
+        f"{prefix}={target}:{4 * lambda_value}",
+        f"{target}%{prefix}:-{lambda_value}"
+    ]
+
+    return new_rules
+
+
+def move_towards(target_model, source_model, alpha=0.3):
+    target_state = target_model.state_dict()
+    source_state = source_model.state_dict()
+
+    for key in target_state:
+        target_state[key] = target_state[key] * (1 - alpha) + source_state[key] * alpha
+
+    target_model.load_state_dict(target_state)
+
+
+def train_esd(prompt, train_method, start_guidance, negative_guidance, iterations, lr, config_path, ckpt_path, diffusers_config_path, devices, seperator=None, image_size=512, ddim_steps=50, sample_prompt=None, accumulation_steps=1, randomly_pull_prompts=False, merge_speed=0.05, merge_every=0):
     '''
     Function to train diffusion models to erase concepts from model weights
 
@@ -228,8 +241,10 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
         Image size for generated images. The default is 512.
     ddim_steps : int, optional
         Number of diffusion time steps. The default is 50.
-    mod_count : int, optional
-        Number of conceptmods to run in parallel. The default is 2.
+    merge_speed: float, optional
+        How quickly to merge from old model to new model. The default is 0.05
+    merge_every: int, optional
+        How many steps before merging. The default is 0 (off)
 
     Returns
     -------
@@ -240,11 +255,10 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
     word_print = prompt.replace(' ','')
 
     if seperator is not None:
-        words = prompt.split(seperator)
-        words = [word.strip() for word in words]
+        rules = prompt.split(seperator)
+        rules = [word.strip() for word in rules]
     else:
-        words = [prompt]
-    print(words)
+        rules = [prompt]
     ddim_eta = 0
     # MODEL TRAINING SETUP
 
@@ -318,12 +332,21 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
         write_sample_png("samples/"+name, model, sampler, sample_start_code, sample_emb, 0, ddim_steps)
     accumulation_counter=0
 
+    dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts")
+    orules = list(rules)
     for i in pbar:
-        num_rules = mod_count
-        rules = select_rules(words, num_rules)
-        rules = [s[1:] if s.startswith("@") else s for s in rules]
-        print("Selected:", rules)
-        #model_orig.load_state_dict(model.state_dict())
+        rules = list(orules)
+        if randomly_pull_prompts:
+            rule = random.choice(dataset['train']["Prompt"]).replace(":","-").replace("%", " percent ").replace("="," equals ")
+            rules += ["~"+rule]
+        print("BEFORE PROCESS", len(rules), "--", rules)
+        rules = [item for rule in rules for item in process_rule(rule)]
+        print(len(rules), "--", rules)
+
+        if args.merge_every != 0 and (i+1) % args.merge_every == 0:
+            print("Moving towards")
+            opt.state = defaultdict(dict)
+            move_towards(model_orig, model, alpha=merge_speed)
 
         opt.zero_grad()
 
@@ -332,6 +355,8 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
             rule_index = rules.index(rule_params)
             rule_obj = parse_input_string(rule_params)
             rule = rule_obj['concept']
+            if rule == '':
+                continue
 
             start_code = torch.randn((1, 4, 64, 64)).to(devices[0])
             t_enc = torch.randint(ddim_steps, (1,), device=devices[0])
@@ -496,7 +521,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
 
         # save checkpoint and loss curve
-        if (i+1) % 30 == 0 and i+1 != iterations and i+1>= 20:
+        if (i+1) % 300 == 0 and i+1 != iterations and i+1>= 20:
             save_model(model, name, i-1, save_compvis=True, save_diffusers=False)
 
         if i % 100 == 0:
@@ -553,7 +578,9 @@ if __name__ == '__main__':
     parser.add_argument('--ddim_steps', help='ddim steps of inference used to train', type=int, required=False, default=50)
     parser.add_argument('--accumulation_steps', help='gradient accumulation steps', type=int, required=False, default=1)
     parser.add_argument('--sample_prompt', help='will create training images with this phrase as SD trains. This requires running through SD and is slower.', type=str, required=False, default=None)
-    parser.add_argument('--mod_count', help='number of mods to use at once', type=int, required=False, default=2)
+    parser.add_argument('--randomly_pull_prompts', help='pull unconditional towards "Gustavosta/Stable-Diffusion-Prompts".', type=bool, required=False, default=False)
+    parser.add_argument('--merge_speed', help='Speed at which to merge the old model to the new model.', type=float, required=False, default=0.05)
+    parser.add_argument('--merge_every', help='Step count before merging to new model. 0 is off', type=float, required=False, default=0)
     args = parser.parse_args()
     
     prompt = args.prompt
@@ -570,6 +597,7 @@ if __name__ == '__main__':
     seperator = args.seperator
     image_size = args.image_size
     ddim_steps = args.ddim_steps
-    mod_count = args.mod_count
+    merge_speed = args.merge_speed
+    merge_every = args.merge_every
 
-    train_esd(prompt=prompt, train_method=train_method, start_guidance=start_guidance, negative_guidance=negative_guidance, iterations=iterations, lr=lr, config_path=config_path, ckpt_path=ckpt_path, diffusers_config_path=diffusers_config_path, devices=devices, seperator=seperator, image_size=image_size, ddim_steps=ddim_steps, mod_count=mod_count, sample_prompt=sample_prompt, accumulation_steps=args.accumulation_steps)
+    train_esd(prompt=prompt, train_method=train_method, start_guidance=start_guidance, negative_guidance=negative_guidance, iterations=iterations, lr=lr, config_path=config_path, ckpt_path=ckpt_path, diffusers_config_path=diffusers_config_path, devices=devices, seperator=seperator, image_size=image_size, ddim_steps=ddim_steps, sample_prompt=sample_prompt, accumulation_steps=args.accumulation_steps, randomly_pull_prompts=args.randomly_pull_prompts, merge_speed=merge_speed, merge_every=merge_every)

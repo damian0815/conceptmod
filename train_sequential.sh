@@ -6,7 +6,7 @@ prompts=(
 )
 
 # Training parameters
-train_method="full"
+train_method="selfattn"
 devices="0,0"
 ckpt_path="../stable-diffusion-webui2/models/Stable-diffusion/criarcysFantasyTo_v30.safetensors"
 negative_guidance=-1.5
@@ -19,7 +19,9 @@ sample_prompt="man, looking serious overlooking city, close up view of face, fac
 # Train on each prompt sequentially
 for prompt in "${prompts[@]}"; do
     echo "Training on prompt: '$prompt'"
-    python train-scripts/train-esd.py --prompt "$prompt" --train_method "$train_method" --devices "$devices" --ckpt_path "$ckpt_path" --negative_guidance "$negative_guidance" --start_guidance "$start_guidance" --iterations "$iterations" --seperator "|" --sample_prompt "$sample_prompt" --accumulation_steps $accumulation_steps --mod_count $mod_count
+    python train-scripts/train-esd.py --prompt "$prompt" --train_method "$train_method" --devices "$devices" --ckpt_path "$ckpt_path" --negative_guidance "$negative_guidance" --start_guidance "$start_guidance" --iterations "$iterations" --seperator "|" --sample_prompt "$sample_prompt" --accumulation_steps $accumulation_steps \
+        --merge_speed 0.05 \
+        --merge_every 100
     echo "Finished training on prompt: '$prompt'"
 done
 
