@@ -22,9 +22,9 @@ Will erase `boring` concept and exaggerate `vibrant colors` concept.
 
 * Freeze: Freeze by using the "#" operator. This reduces movement of specified term during training steps.
 
-  Example: "@1woman#1woman" with "badword--" freezes the first phrase while deleting the badword.
+  Example: "1woman#1woman" with "badword--" freezes the first phrase while deleting the badword.
 
-  Note: "@#" means resist changing the unconditional.
+  Note: "#" means resist changing the unconditional.
 
 * Orthogonal: To make two concepts orthogonal, use the "%" operator.
 
@@ -64,15 +64,13 @@ lambda_value default is 0.1
 
 ## Prompt options
 
-* Regularize: Prefix any term with '@' to move to priority queue (run each turn).
+* "@" 
 
-  Example: "@=priority term|=normal term"
-
-  *untested term*
+  *deprecated, does nothing*
 
 * Alpha: Add alpha to scale terms.
 
-  Example: "=day time:0.75|=night time:0.25|@=enchanted lake"
+  Example: "=day time:0.75|=night time:0.25|=enchanted lake"
 
   *untested term*
 
