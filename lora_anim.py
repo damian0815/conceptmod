@@ -17,10 +17,9 @@ seed = random.SystemRandom().randint(0, 2**32-1)
 print(seed, "seed")
 prompt = "male harry potter, photo of gucci fashion, lips pursed, stern aloof look, profile picture, full torso and head in shot, fashion magazine photoshoot, fashionable hairstyle, cheekbones, hair fluffed and down"
 def generate_image(lora):
-    global prompt
     url = "http://192.168.0.180:7777/sdapi/v1/txt2img"
     headers = {"Content-Type": "application/json"}
-    prompt_ = prompt + "<lora:compvis-word_0.04fluffy0.2-method_selfattn-sg:" +"{:.14f}".format(lora*3.5)+"><lora:weird_image.:1.0>"
+    prompt_ = prompt + "<lora:gucci:" +"{:.14f}".format(lora*3.5)+"><lora:weird_image.:1.0>"
 
     data = {
         "seed": seed,
