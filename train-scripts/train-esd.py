@@ -1,6 +1,5 @@
 from omegaconf import OmegaConf
 from collections import defaultdict
-import torch.optim.lr_scheduler as lr_scheduler
 
 from safetensors import safe_open
 from datasets import load_dataset

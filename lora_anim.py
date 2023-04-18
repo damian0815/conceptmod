@@ -51,7 +51,8 @@ def generate_image(prompt, negative_prompt, lora):
         #"prompt": "male bearded hagrid in great shape, chad, ripped, in a forest <lora:gucci:"+"{:.14f}".format(lora)+">, photo of gucci , lips pursed, stern aloof look, profile picture, full torso and head in shot, fashionable hairstyle, hair fluffed and down, <lora:weird_image.:1.0>",
         "prompt": prompt_,
         #"prompt": "male bearded hagrid in great shape, chad, ripped, in a forest <lora:balenciaga:"+"{:.14f}".format(lora)+">, photo of balenciaga , lips pursed, stern aloof look, profile picture, full torso and head in shot, fashionable hairstyle, hair fluffed and down, <lora:weird_image.:1.0>",
-        "negative_prompt": "weird image.",
+        #"negative_prompt": "weird image.",
+        "negative_prompt": negative_prompt,
         #"negative_prompt": "female",
         "steps": 40
     }
