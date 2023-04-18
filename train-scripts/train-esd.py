@@ -312,8 +312,6 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
     losses = []
     opt = torch.optim.Adam(parameters, lr=lr)
 
-    # Add a learning rate scheduler
-    scheduler = lr_scheduler.ReduceLROnPlateau(opt, mode='min', factor=0.5, patience=100, verbose=True, threshold=1e-4)
 
     criteria = torch.nn.MSELoss()
     history = []
