@@ -52,12 +52,12 @@ def generate_image(prompt, negative_prompt, lora):
         "seed": seed,
         "width": 512,
         "height": 512,
-        "sampler_name": "DDIM",
+        "sampler_name": "Euler",
         "prompt": prompt_,
         "negative_prompt": negative_prompt,
-        "steps": 40
+        "steps": 25
     }
-    print(" calling: ", prompt_)
+    #print(" calling: ", prompt_)
 
     response = requests.post(url, headers=headers, data=json.dumps(data))
 
@@ -160,18 +160,22 @@ def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_imag
             print("KEYS", image_cache.keys())
             return hi, target_image
 
+    mid = hi
+    mid_image = None
     while hi - lo > tolerance:
         mid = (lo + hi) / 2
         mid_image = generate_image(prompt, negative_prompt, mid)
 
         if compare(prev_image, mid_image) > max_compare:
-            print(" - Descend  -  lora ", mid, "compare", compare(mid_image, prev_image), "lo", lo, "hi", hi)
+            print(" -Descend  -  lora ", mid, "compare", compare(mid_image, prev_image), "lo", lo, "hi", hi)
             hi = mid
         else:
             print("Closeness 2 - lora", mid, "compare", compare(mid_image, prev_image), "lo", lo, "hi", hi)
             del image_cache[sorted(list(image_cache.keys()))[0]]
             return mid, mid_image
     print("TOLERANCE", lo, hi, " - tol", tolerance)
+    if mid_image is None:
+        mid_image = generate_image(prompt, negative_prompt, mid)
 
     return mid, mid_image
 
