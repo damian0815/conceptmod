@@ -133,7 +133,7 @@ def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_imag
         closest_lora = float(closest_key.split('_')[-1])
         compare_result = compare(target_image, prev_image)
         while compare_result < 0.05:
-            print("Deleting closest because it doesn't move", closest_lora, compare_result)
+            print("  deleting cache because it doesn't move", compare_result)
             del image_cache[closest_key]
             closest_key = find_closest_cached_lora(target_lora)
             if closest_key is None:
@@ -144,7 +144,7 @@ def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_imag
             compare_result = compare(target_image, prev_image)
 
         if compare_result < max_compare:
-            print("Closeness 1 lora ", closest_lora, "compare", compare_result, "lo", lo, "hi", hi)
+            print("  found frame in cache", compare_result)
             # Add the target_image to images and remove it from the cache
             del image_cache[closest_key]
             return closest_lora, target_image
@@ -154,10 +154,9 @@ def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_imag
         target_image = generate_image(prompt, negative_prompt, target_lora)
         compare_result = compare(target_image, prev_image)
         if compare_result < max_compare:
-            print("Closeness 3 lora ", hi, "compare", compare_result, "lo", lo, "hi", hi)
+            print("  found frame in target ", compare)
             # Add the target_image to images and remove it from the cache
             del image_cache[sorted(list(image_cache.keys()))[0]]
-            print("KEYS", image_cache.keys())
             return hi, target_image
 
     mid = hi
@@ -167,13 +166,13 @@ def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_imag
         mid_image = generate_image(prompt, negative_prompt, mid)
 
         if compare(prev_image, mid_image) > max_compare:
-            print(" -Descend  -  lora ", mid, "compare", compare(mid_image, prev_image), "lo", lo, "hi", hi)
+            print("  descend  -  lora ", mid, "compare", compare(mid_image, prev_image), "lo", lo, "hi", hi)
             hi = mid
         else:
-            print("Closeness 2 - lora", mid, "compare", compare(mid_image, prev_image), "lo", lo, "hi", hi)
+            print("  found frame in bsearch", compare(mid_image, prev_image))
             del image_cache[sorted(list(image_cache.keys()))[0]]
             return mid, mid_image
-    print("TOLERANCE", lo, hi, " - tol", tolerance)
+    print("  found tolerance frame, may not be smooth")
     if mid_image is None:
         mid_image = generate_image(prompt, negative_prompt, mid)
 
@@ -199,6 +198,7 @@ def find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compar
         while not np.isclose(optimal_lora, target_lora, rtol=tolerance, atol=tolerance):
             prev_image = current_image
             optimal_lora, current_image = find_optimal_lora(prompt, negative_prompt, optimal_lora, target_lora, prev_image, max_compare, tolerance)
+            print(f"-> frame {image_idx:03d} from lora {optimal_lora:.2f} / {lora_end}")
             images.append(current_image)
             current_image.save(os.path.join("anim", f"image_{image_idx:04d}.png"))
             image_idx += 1
@@ -225,8 +225,8 @@ def find_best_seed(prompt, negative_prompt, num_seeds=10, steps=2, max_compare=2
         score1 = score_image(prompt, "anim/image_0000.png")
         score2 = score_image(prompt, "anim/image_0001.png")
         c = compare(generated_images[0], generated_images[1])
-        total_score = score1 + score2 - c / 5.0
-        print("Score 1:", score1, "Score 2", score2, "Comparison", c, "total score", total_score)
+        total_score = score1 + 3*score2 - c / 5.0
+        #print("Score 1:", score1, "Score 2", score2, "Comparison", c, "total score", total_score)
 
         # Print the scores for debugging
         print(f"Seed: {_}, Score1: {score1}, Score2: {score2}, Total: {total_score}")
