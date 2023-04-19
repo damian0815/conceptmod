@@ -1,6 +1,7 @@
 import requests
 import glob
 import argparse
+import time
 import imageio
 import torch
 import random
@@ -17,6 +18,9 @@ import ImageReward as reward
 from datasets import load_dataset
 from moviepy.editor import ImageSequenceClip, concatenate_videoclips, vfx
 from moviepy.video.fx import fadein, fadeout
+
+# Add a cache dictionary to store generated images and their corresponding lora values
+image_cache = {}
 
 model = None
 def score_image(prompt, fullpath):
@@ -37,36 +41,35 @@ def generate_image(prompt, negative_prompt, lora):
     url = "http://192.168.0.180:7777/sdapi/v1/txt2img"
     headers = {"Content-Type": "application/json"}
     prompt_ = prompt.replace("LORAVALUE",  "{:.14f}".format(lora))
+    uid = prompt_+"_"+negative_prompt+"_"+str(seed)+"_"+"{:.14f}".format(lora)
+
+    # Check if the image exists in the cache
+    if uid in image_cache:
+        print(" cached: ", prompt)
+        return image_cache[uid]
 
     data = {
         "seed": seed,
         "width": 512,
         "height": 512,
         "sampler_name": "DDIM",
-        #"prompt": "male harry potter <lora:gucci:"+str(lora)+">, photo of gucci fashion, lips pursed, stern aloof look, profile picture, full torso and head in shot, fashion magazine photoshoot, fashionable hairstyle, cheekbones, hair fluffed and down",
-        #"prompt": "male harry potter <lora:balenciaga:"+str(lora)+">, photo of balenciaga fashion, lips pursed, stern aloof look, profile picture, full torso and head in shot, fashion magazine photoshoot, fashionable hairstyle, cheekbones, hair fluffed and down",
-        #"prompt": "hermoine as an auror in a coffee shop <lora:balenciaga:"+"{:.14f}".format(lora)+">, photo of balenciaga , lips pursed, stern aloof look, profile picture, full torso and head in shot, fashionable hairstyle, hair fluffed and down, <lora:weird_image.:1.0>",
-        #"prompt": "hermoine as an auror in a coffee shop <lora:gucci:"+"{:.14f}".format(lora)+">, photo of gucci , lips pursed, stern aloof look, profile picture, full torso and head in shot, fashionable hairstyle, hair fluffed and down, <lora:weird_image.:1.0>",
-        #"prompt": "ron weasley in quidditch gear, on the field <lora:gucci:"+"{:.14f}".format(lora)+">, photo of gucci , lips pursed, stern aloof look, profile picture, full torso and head in shot, fashionable hairstyle, hair fluffed and down, <lora:weird_image.:1.0>",
-        #"prompt": "male bearded hagrid in great shape, chad, ripped, in a forest <lora:gucci:"+"{:.14f}".format(lora)+">, photo of gucci , lips pursed, stern aloof look, profile picture, full torso and head in shot, fashionable hairstyle, hair fluffed and down, <lora:weird_image.:1.0>",
         "prompt": prompt_,
-        #"prompt": "male bearded hagrid in great shape, chad, ripped, in a forest <lora:balenciaga:"+"{:.14f}".format(lora)+">, photo of balenciaga , lips pursed, stern aloof look, profile picture, full torso and head in shot, fashionable hairstyle, hair fluffed and down, <lora:weird_image.:1.0>",
-        #"negative_prompt": "weird image.",
         "negative_prompt": negative_prompt,
-        #"negative_prompt": "female",
         "steps": 40
     }
-    print(data)
+    print(" calling: ", prompt_)
 
     response = requests.post(url, headers=headers, data=json.dumps(data))
 
     if response.status_code == 200:
         r = response.json()
         image = Image.open(io.BytesIO(base64.b64decode(r['images'][0].split(",",1)[0])))
+
+        image_cache[uid] = image
         return image
     else:
         print(f"Request failed with status code {response.status_code}")
-        assert False
+        return generate_image(prompt, negative_prompt, lora)
 
 from skimage.metrics import structural_similarity as ssim
 
@@ -106,24 +109,67 @@ def compare(image1, image2):
     return optical_flow(image1, image2)
 
 
+def find_closest_cached_lora(target_lora):
+    if not image_cache:
+        return None
+
+    # Extract the lora values from the cache keys
+    cached_lora_values = [float(key.split('_')[-1]) for key in image_cache]
+
+    # Find the closest lora value in the cache
+    closest_lora = min(cached_lora_values, key=lambda x: -abs(x - target_lora))
+
+    # Return the corresponding cache key
+    closest_key = [key for key in image_cache if float(key.split('_')[-1]) == closest_lora][0]
+    return closest_key
+
 def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_image, max_compare, tolerance):
     lo, hi = prev_lora, target_lora
-    target_image = generate_image(prompt, negative_prompt, target_lora)
-    if compare(target_image, prev_image) < max_compare:
-        print("Closeness 1", compare(target_image, prev_image), "lo", lo, "hi", hi)
-        return hi, target_image
 
-    mid = hi
-    mid_image = target_image
+    # Check if there's a close cached lora value
+    closest_key = find_closest_cached_lora(target_lora)
+    if closest_key is not None:
+        target_image = image_cache[closest_key]
+        closest_lora = float(closest_key.split('_')[-1])
+        compare_result = compare(target_image, prev_image)
+        while compare_result < 0.05:
+            print("Deleting closest because it doesn't move", closest_lora, compare_result)
+            del image_cache[closest_key]
+            closest_key = find_closest_cached_lora(target_lora)
+            if closest_key is None:
+                closest_lora=target_lora
+                break
+            closest_lora = float(closest_key.split('_')[-1])
+            target_image = image_cache[closest_key]
+            compare_result = compare(target_image, prev_image)
+
+        if compare_result < max_compare:
+            print("Closeness 1 lora ", closest_lora, "compare", compare_result, "lo", lo, "hi", hi)
+            # Add the target_image to images and remove it from the cache
+            del image_cache[closest_key]
+            return closest_lora, target_image
+        hi = closest_lora
+
+    if closest_key is None:
+        target_image = generate_image(prompt, negative_prompt, target_lora)
+        compare_result = compare(target_image, prev_image)
+        if compare_result < max_compare:
+            print("Closeness 3 lora ", hi, "compare", compare_result, "lo", lo, "hi", hi)
+            # Add the target_image to images and remove it from the cache
+            del image_cache[sorted(list(image_cache.keys()))[0]]
+            print("KEYS", image_cache.keys())
+            return hi, target_image
+
     while hi - lo > tolerance:
         mid = (lo + hi) / 2
         mid_image = generate_image(prompt, negative_prompt, mid)
 
-        print(" - Closeness  - ", compare(mid_image, prev_image), "lo", lo, "hi", hi)
         if compare(prev_image, mid_image) > max_compare:
+            print(" - Descend  -  lora ", mid, "compare", compare(mid_image, prev_image), "lo", lo, "hi", hi)
             hi = mid
         else:
-            print("Closeness 2", compare(mid_image, prev_image), "lo", lo, "hi", hi)
+            print("Closeness 2 - lora", mid, "compare", compare(mid_image, prev_image), "lo", lo, "hi", hi)
+            del image_cache[sorted(list(image_cache.keys()))[0]]
             return mid, mid_image
     print("TOLERANCE", lo, hi, " - tol", tolerance)
 
@@ -137,6 +183,7 @@ def find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compar
     # Create the "anim" directory if it doesn't exist
     os.makedirs("anim", exist_ok=True)
     prev_image = generate_image(prompt, negative_prompt, lora_start)
+    del image_cache[sorted(list(image_cache.keys()))[0]]
     prev_image.save(os.path.join("anim", f"image_0000.png"))
     images.append(prev_image)
     image_idx = 1
@@ -157,6 +204,7 @@ def find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compar
 
 def find_best_seed(prompt, negative_prompt, num_seeds=10, steps=2, max_compare=20.0, lora_start=0.0, lora_end=1.0):
     global seed
+    global image_cache
     best_seed = None
     best_score = float('-inf')
     bscore1 = None
@@ -164,6 +212,7 @@ def find_best_seed(prompt, negative_prompt, num_seeds=10, steps=2, max_compare=2
 
     for _ in range(num_seeds):
         seed = random.SystemRandom().randint(0, 2**32-1)
+        image_cache = {}
 
         # Generate images with steps=2 and max_compare=-0.0
         generated_images = find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compare)
@@ -171,7 +220,9 @@ def find_best_seed(prompt, negative_prompt, num_seeds=10, steps=2, max_compare=2
         # Score the images and sum the scores
         score1 = score_image(prompt, "anim/image_0000.png")
         score2 = score_image(prompt, "anim/image_0001.png")
-        total_score = score1 + score2
+        c = compare(generated_images[0], generated_images[1])
+        total_score = score1 + score2 - c / 5.0
+        print("Score 1:", score1, "Score 2", score2, "Comparison", c, "total score", total_score)
 
         # Print the scores for debugging
         print(f"Seed: {_}, Score1: {score1}, Score2: {score2}, Total: {total_score}")
