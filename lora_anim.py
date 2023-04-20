@@ -197,8 +197,8 @@ def find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compar
         while not np.isclose(optimal_lora, target_lora, rtol=tolerance, atol=tolerance):
             prev_image = current_image
             optimal_lora, current_image = find_optimal_lora(prompt, negative_prompt, optimal_lora, target_lora, prev_image, max_compare, tolerance, budget)
-            budget =  120- len(images)+len(image_cache.keys())
-            print(f"-> frame {image_idx:03d} from lora {optimal_lora:.10f} / {lora_end} budget {budget:3d}")
+            budget =  120- len(images)-len(image_cache.keys()) - len(lora_values[i+1:])
+            print(f"-> frame {image_idx:03d} from lora {optimal_lora:.10f} / {lora_end} budget {budget:3d} cache size {len(image_cache.keys()):2d}")
             if budget < 0:
                 for key in image_cache.keys():
                     images.append(image_cache[key])
