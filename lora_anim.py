@@ -117,8 +117,11 @@ def find_closest_cache_key():
         return None
     return sorted_list[0][0]
 
-def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_image, max_compare, tolerance):
+def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_image, max_compare, tolerance, budget):
     lo, hi = prev_lora, target_lora
+    if budget <= 0:
+        target_image = generate_image(prompt, negative_prompt, target_lora)
+        return hi, target_image
 
     # Check if there's a close cached lora value
     closest_key = find_closest_cache_key()
@@ -155,13 +158,14 @@ def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_imag
 
     mid = hi
     mid_image = None
-    while hi - lo > tolerance:
+    while hi - lo > tolerance and budget > 0:
         mid = (lo + hi) / 2
         mid_image = generate_image(prompt, negative_prompt, mid)
 
         if compare(prev_image, mid_image) > max_compare:
             print("  descend  -  lora ", mid, "compare", compare(mid_image, prev_image), "lo", lo, "hi", hi)
             hi = mid
+            budget-=1
         else:
             print("  found frame in bsearch", compare(mid_image, prev_image))
             del image_cache[find_closest_cache_key()]
@@ -185,19 +189,22 @@ def find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compar
     images.append(prev_image)
     image_idx = 1
     current_image = prev_image
+    budget = 120
 
     for i, target_lora in enumerate(lora_values[1:]):
         optimal_lora = lora_values[i]
 
-        while not np.isclose(optimal_lora, target_lora, rtol=tolerance, atol=tolerance) and len(images)+len(image_cache.keys()) < 120:
+        while not np.isclose(optimal_lora, target_lora, rtol=tolerance, atol=tolerance):
             prev_image = current_image
-            optimal_lora, current_image = find_optimal_lora(prompt, negative_prompt, optimal_lora, target_lora, prev_image, max_compare, tolerance)
-            print(f"-> frame {image_idx:03d} from lora {optimal_lora:.10f} / {lora_end}")
+            optimal_lora, current_image = find_optimal_lora(prompt, negative_prompt, optimal_lora, target_lora, prev_image, max_compare, tolerance, budget)
+            budget =  120- len(images)+len(image_cache.keys())
+            print(f"-> frame {image_idx:03d} from lora {optimal_lora:.10f} / {lora_end} budget {budget:3d}")
+            if budget < 0:
+                for key in image_cache.keys():
+                    images.append(image_cache[key])
             images.append(current_image)
             current_image.save(os.path.join("anim", f"image_{image_idx:04d}.png"))
             image_idx += 1
-    for key in image_cache.keys():
-        images.append(image_cache[key])
 
     return images
 
