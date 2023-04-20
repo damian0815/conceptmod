@@ -55,7 +55,7 @@ def generate_image(prompt, negative_prompt, lora):
         "sampler_name": "Euler",
         "prompt": prompt_,
         "negative_prompt": negative_prompt,
-        "steps": 25
+        "steps": 20
     }
     #print(" calling: ", prompt_)
 
@@ -109,25 +109,19 @@ def compare(image1, image2):
     return optical_flow(image1, image2)
 
 
-def find_closest_cached_lora(target_lora):
-    if not image_cache:
+def find_closest_cache_key():
+    closest_lora = [[key, float(key.split('_')[-1])] for key in image_cache.keys()]
+    sorted_list = sorted(closest_lora, key=lambda x: x[1])
+
+    if(len(sorted_list) == 0):
         return None
-
-    # Extract the lora values from the cache keys
-    cached_lora_values = [float(key.split('_')[-1]) for key in image_cache]
-
-    # Find the closest lora value in the cache
-    closest_lora = min(cached_lora_values, key=lambda x: -abs(x - target_lora))
-
-    # Return the corresponding cache key
-    closest_key = [key for key in image_cache if float(key.split('_')[-1]) == closest_lora][0]
-    return closest_key
+    return sorted_list[0][0]
 
 def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_image, max_compare, tolerance):
     lo, hi = prev_lora, target_lora
 
     # Check if there's a close cached lora value
-    closest_key = find_closest_cached_lora(target_lora)
+    closest_key = find_closest_cache_key()
     if closest_key is not None:
         target_image = image_cache[closest_key]
         closest_lora = float(closest_key.split('_')[-1])
@@ -135,7 +129,7 @@ def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_imag
         while compare_result < 0.05:
             print("  deleting cache because it doesn't move", compare_result)
             del image_cache[closest_key]
-            closest_key = find_closest_cached_lora(target_lora)
+            closest_key = find_closest_cache_key()
             if closest_key is None:
                 closest_lora=target_lora
                 break
@@ -156,7 +150,7 @@ def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_imag
         if compare_result < max_compare:
             print("  found frame in target ", compare)
             # Add the target_image to images and remove it from the cache
-            del image_cache[sorted(list(image_cache.keys()))[0]]
+            del image_cache[find_closest_cache_key()]
             return hi, target_image
 
     mid = hi
@@ -170,7 +164,7 @@ def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_imag
             hi = mid
         else:
             print("  found frame in bsearch", compare(mid_image, prev_image))
-            del image_cache[sorted(list(image_cache.keys()))[0]]
+            del image_cache[find_closest_cache_key()]
             return mid, mid_image
     print("  found tolerance frame, may not be smooth")
     if mid_image is None:
@@ -186,7 +180,7 @@ def find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compar
     # Create the "anim" directory if it doesn't exist
     os.makedirs("anim", exist_ok=True)
     prev_image = generate_image(prompt, negative_prompt, lora_start)
-    del image_cache[sorted(list(image_cache.keys()))[0]]
+    del image_cache[find_closest_cache_key()]
     prev_image.save(os.path.join("anim", f"image_0000.png"))
     images.append(prev_image)
     image_idx = 1
@@ -195,14 +189,15 @@ def find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compar
     for i, target_lora in enumerate(lora_values[1:]):
         optimal_lora = lora_values[i]
 
-        while not np.isclose(optimal_lora, target_lora, rtol=tolerance, atol=tolerance):
+        while not np.isclose(optimal_lora, target_lora, rtol=tolerance, atol=tolerance) and len(images)+len(image_cache.keys()) < 120:
             prev_image = current_image
             optimal_lora, current_image = find_optimal_lora(prompt, negative_prompt, optimal_lora, target_lora, prev_image, max_compare, tolerance)
-            print(f"-> frame {image_idx:03d} from lora {optimal_lora:.2f} / {lora_end}")
+            print(f"-> frame {image_idx:03d} from lora {optimal_lora:.10f} / {lora_end}")
             images.append(current_image)
             current_image.save(os.path.join("anim", f"image_{image_idx:04d}.png"))
             image_idx += 1
-        print(compare(current_image, prev_image), "Done")
+    for key in image_cache.keys():
+        images.append(image_cache[key])
 
     return images
 
@@ -225,7 +220,7 @@ def find_best_seed(prompt, negative_prompt, num_seeds=10, steps=2, max_compare=2
         score1 = score_image(prompt, "anim/image_0000.png")
         score2 = score_image(prompt, "anim/image_0001.png")
         c = compare(generated_images[0], generated_images[1])
-        total_score = score1 + 3*score2 - c / 5.0
+        total_score = score1 + 3*score2 - c / 8.0
         #print("Score 1:", score1, "Score 2", score2, "Comparison", c, "total score", total_score)
 
         # Print the scores for debugging
