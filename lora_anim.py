@@ -1,4 +1,5 @@
 import requests
+import math
 import glob
 import argparse
 import time
@@ -12,6 +13,7 @@ import io
 from PIL import Image
 import os
 import json
+from decimal import Decimal
 
 import cv2
 import ImageReward as reward
@@ -45,17 +47,16 @@ def generate_image(prompt, negative_prompt, lora):
 
     # Check if the image exists in the cache
     if uid in image_cache:
-        print(" cached: ", prompt)
         return image_cache[uid]
 
     data = {
         "seed": seed,
         "width": 512,
         "height": 512,
-        "sampler_name": "Euler",
+        "sampler_name": "DDIM",
         "prompt": prompt_,
         "negative_prompt": negative_prompt,
-        "steps": 20
+        "steps": 50
     }
     #print(" calling: ", prompt_)
 
@@ -110,7 +111,7 @@ def compare(image1, image2):
 
 
 def find_closest_cache_key():
-    closest_lora = [[key, float(key.split('_')[-1])] for key in image_cache.keys()]
+    closest_lora = [[key, Decimal(key.split('_')[-1])] for key in image_cache.keys()]
     sorted_list = sorted(closest_lora, key=lambda x: x[1])
 
     if(len(sorted_list) == 0):
@@ -119,26 +120,20 @@ def find_closest_cache_key():
 
 def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_image, max_compare, tolerance, budget):
     lo, hi = prev_lora, target_lora
+    lo = Decimal(lo)
+    hi = Decimal(hi)
+    assert hi > lo
     if budget <= 0:
         target_image = generate_image(prompt, negative_prompt, target_lora)
+        del image_cache[find_closest_cache_key()]
         return hi, target_image
 
     # Check if there's a close cached lora value
     closest_key = find_closest_cache_key()
     if closest_key is not None:
         target_image = image_cache[closest_key]
-        closest_lora = float(closest_key.split('_')[-1])
-        compare_result = compare(target_image, prev_image)
-        while compare_result < 0.05:
-            print("  deleting cache because it doesn't move", compare_result)
-            del image_cache[closest_key]
-            closest_key = find_closest_cache_key()
-            if closest_key is None:
-                closest_lora=target_lora
-                break
-            closest_lora = float(closest_key.split('_')[-1])
-            target_image = image_cache[closest_key]
-            compare_result = compare(target_image, prev_image)
+        closest_lora = Decimal(closest_key.split('_')[-1])
+        compare_result = compare(prev_image, target_image)
 
         if compare_result < max_compare:
             print("  found frame in cache", compare_result)
@@ -149,9 +144,9 @@ def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_imag
 
     if closest_key is None:
         target_image = generate_image(prompt, negative_prompt, target_lora)
-        compare_result = compare(target_image, prev_image)
+        compare_result = compare(prev_image, target_image)
         if compare_result < max_compare:
-            print("  found frame in target ", compare)
+            print("  found frame in target ", compare_result)
             # Add the target_image to images and remove it from the cache
             del image_cache[find_closest_cache_key()]
             return hi, target_image
@@ -161,24 +156,74 @@ def find_optimal_lora(prompt, negative_prompt, prev_lora, target_lora, prev_imag
     while hi - lo > tolerance and budget > 0:
         mid = (lo + hi) / 2
         mid_image = generate_image(prompt, negative_prompt, mid)
+        comparison = compare(prev_image, mid_image)
 
-        if compare(prev_image, mid_image) > max_compare:
-            print("  descend  -  lora ", mid, "compare", compare(mid_image, prev_image), "lo", lo, "hi", hi)
+        if max_compare < comparison:
+            print("  descend  -  lora ", mid, "compare", comparison)
             hi = mid
             budget-=1
         else:
-            print("  found frame in bsearch", compare(mid_image, prev_image))
+            print("  found frame in bsearch", comparison)
             del image_cache[find_closest_cache_key()]
             return mid, mid_image
-    print("  found tolerance frame, may not be smooth")
+    print("  found tolerance frame, may not be smooth", lo, hi, hi - lo > tolerance, "budget?", budget, budget > 0)
     if mid_image is None:
         mid_image = generate_image(prompt, negative_prompt, mid)
+    del image_cache[find_closest_cache_key()]
 
     return mid, mid_image
 
-def find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compare=1000, tolerance=2e-14):
+def is_sequential(arr):
+    # Check if the array is empty or has only one element
+    if len(arr) <= 1:
+        return True
+
+    # Iterate over the array and check if each element is one more than the previous one
+    for i in range(1, len(arr)):
+        if arr[i] < arr[i-1]:
+            print("Found nonsequential at ", i)
+            return False
+
+    # If we've reached this point, the array is sequential
+    return True
+
+def smooth(images, threshold=0.1, similarity_threshold=0.05):
+    smooth_images = [images[0]]
+    i = 1
+
+    while i < len(images):
+        distance = compare(images[i-1], images[i])
+
+        if distance >= threshold:
+            similar = False
+
+            # Check for similar non-consecutive frames
+            for j in range(i + 1, min(len(images), i+30)):
+                distance_similarity = compare(images[i-1], images[j])
+
+                if distance_similarity <= similarity_threshold:
+                    similar = True
+                    print(f"Removed frames {i} to {j-1} due to similar frames {i-1} and {j}")
+                    i = j
+                    break
+
+            if not similar:
+                smooth_images.append(images[i])
+                i += 1
+            else:
+                i += 1
+
+        else:
+            print(f"Removed frame {i} due to low distance: {distance}")
+            i += 1
+
+    return smooth_images
+
+
+def find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compare=1000, tolerance=2e-13, max_budget=120):
     images = []
-    lora_values = np.linspace(lora_start, lora_end, steps)
+    lora_values = np.linspace(float(lora_start), float(lora_end), steps)
+    global image_cache
 
 
     # Create the "anim" directory if it doesn't exist
@@ -188,23 +233,39 @@ def find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compar
     prev_image.save(os.path.join("anim", f"image_0000.png"))
     images.append(prev_image)
     image_idx = 1
+    budget = max_budget-1
     current_image = prev_image
-    budget = 120
+    series = []
+    optimal_lora = lora_start
 
     for i, target_lora in enumerate(lora_values[1:]):
-        optimal_lora = lora_values[i]
 
-        while not np.isclose(optimal_lora, target_lora, rtol=tolerance, atol=tolerance):
+        while optimal_lora is None or not math.isclose(optimal_lora, target_lora, abs_tol=tolerance):
             prev_image = current_image
             optimal_lora, current_image = find_optimal_lora(prompt, negative_prompt, optimal_lora, target_lora, prev_image, max_compare, tolerance, budget)
-            budget =  120- len(images)-len(image_cache.keys()) - len(lora_values[i+1:])
+            budget =  max_budget- len(images)-len(image_cache.keys()) - len(lora_values[i+1:])
             print(f"-> frame {image_idx:03d} from lora {optimal_lora:.10f} / {lora_end} budget {budget:3d} cache size {len(image_cache.keys()):2d}")
-            if budget < 0:
-                for key in image_cache.keys():
-                    images.append(image_cache[key])
+            if len(series) > 0:
+                #print("  optimal", optimal_lora, " last ", series[-1], series[-1] <= optimal_lora)
+                #if(series[-1] > optimal_lora)
+                assert series[-1] <= optimal_lora
+            series += [optimal_lora]
             images.append(current_image)
             current_image.save(os.path.join("anim", f"image_{image_idx:04d}.png"))
             image_idx += 1
+            if budget <= 0:
+                while(len(image_cache.keys()) > 0):
+                    current_image = image_cache[find_closest_cache_key()]
+                    del image_cache[find_closest_cache_key()]
+                    images.append(current_image)
+                    current_image.save(os.path.join("anim", f"image_{image_idx:04d}.png"))
+                    image_idx += 1
+
+
+            if not is_sequential(series):
+                print("Failure in sequence detected!!.")
+                print(series)
+                assert False
 
     return images
 
@@ -227,7 +288,7 @@ def find_best_seed(prompt, negative_prompt, num_seeds=10, steps=2, max_compare=2
         score1 = score_image(prompt, "anim/image_0000.png")
         score2 = score_image(prompt, "anim/image_0001.png")
         c = compare(generated_images[0], generated_images[1])
-        total_score = score1 + 3*score2 - c / 8.0
+        total_score = score1 + 3*score2 - c / 16.0
         #print("Score 1:", score1, "Score 2", score2, "Comparison", c, "total score", total_score)
 
         # Print the scores for debugging
@@ -244,12 +305,13 @@ def find_best_seed(prompt, negative_prompt, num_seeds=10, steps=2, max_compare=2
 
 def main():
     parser = argparse.ArgumentParser(description='Generate images for a video between lora_start and lora_end')
-    parser.add_argument('-s', '--lora_start', type=float, required=True, help='Start lora value')
-    parser.add_argument('-e', '--lora_end', type=float, required=True, help='End lora value')
+    parser.add_argument('-s', '--lora_start', type=Decimal, required=True, help='Start lora value')
+    parser.add_argument('-e', '--lora_end', type=Decimal, required=True, help='End lora value')
     parser.add_argument('-m', '--max_compare', type=float, default=1000.0, help='Maximum mean squared error (default: 1000)')
     parser.add_argument('-n', '--steps', type=int, default=32, help='Min frames in output animation')
     parser.add_argument('-sd', '--num_seeds', type=int, default=10, help='number of seeds to search')
-    parser.add_argument('-t', '--tolerance', type=float, default=2e-14, help='Tolerance for optimal lora (default: 2e-14)')
+    parser.add_argument('-b', '--budget', type=int, default=120, help='budget of image frames')
+    parser.add_argument('-t', '--tolerance', type=Decimal, default=2e-14, help='Tolerance for optimal lora (default: 2e-14)')
     parser.add_argument('-l', '--lora', type=str, required=True, help='Lora to use')
     parser.add_argument('-lp', '--lora_prompt', type=str, default="", help='Lora prompt')
     parser.add_argument('-np', '--negative_prompt', type=str, default="weird image.", help='negative prompt')
@@ -271,9 +333,23 @@ def main():
     # Now generate images with the best seed, compare=-0.77, and steps=32
     global seed
     seed = best_seed  # Set the best seed as the current seed
-    generated_images = find_images(prompt, args.negative_prompt, args.lora_start, args.lora_end, args.steps, args.max_compare)
+    images = find_images(prompt, args.negative_prompt, args.lora_start, args.lora_end, args.steps, args.max_compare, args.tolerance, args.budget)
+    #print("Smoothing frames. This may take a while (deleting repeat sequences")
+    #generated_images = smooth(images)
+    #print("Before smoothing:", len(images), "frames after:", len(generated_images), "frames")
+    generated_images = images
+    #for filename in os.listdir(folder):
+    #    if filename.endswith(".png"):
+    #        os.unlink(os.path.join(folder, filename))
+
+    #for i, image in enumerate(generated_images):
+    #    image.save(os.path.join("anim", f"image_{i+1:04d}.png"))
+
     # Create an animated movie
     fps = len(generated_images)//5
+    if(fps ==0):
+        fps = 1
+    print("Generated", len(generated_images), "fps", fps)
     video_index = create_animated_movie("anim", "v4", fps=fps)
 
     # Save details to a JSON file
@@ -284,8 +360,8 @@ def main():
         "prompt_addendum": args.prompt_addendum,
         "lora": args.lora,
         "lora_prompt": args.lora_prompt,
-        "lora_start": args.lora_start,
-        "lora_end": args.lora_end,
+        "lora_start": float(args.lora_start),
+        "lora_end": float(args.lora_end),
         "score1": score1,
         "score2": score2,
         "best_score": best_score
