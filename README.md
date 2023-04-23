@@ -49,6 +49,11 @@ lambda_value default is 0.1
 
 *experimental*
 
+* Pixelwise l2 loss: For reducing overall movement
+
+  "source^target"
+
+  renders the images for each phrase and adds pixelwise l2 loss between the two. Minizes pixel level image changes for keywords.
 
 * Write to Unconditional: To write a concept to the unconditional model, use the "=" operator after the concept.
 

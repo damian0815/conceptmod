@@ -31,6 +31,9 @@ import time
 from contextlib import nullcontext
 from PIL import Image
 
+def compare(img1, img2):
+    return ((img1-img2)**2).mean()
+
 # Util Functions
 def load_model_from_config(config, ckpt, device="cpu", verbose=False):
     """Loads a model from config and a ckpt
@@ -143,12 +146,18 @@ def parse_input_string(input_str):
             key, value = part.split('=', 1)
             params[key] = float(value)
         else:
+            negative=False
+            if part.startswith("--"):
+                negative=True
+                part = part[1:]
             # If it's just a value, assume it's the alpha value
             params["alpha"] = float(part)
+            if negative:
+                params["alpha"]=-params["alpha"]
 
     return params
 
-def write_sample_png(name, model, sampler, sample_start_code, sample_emb, step, ddim_steps):
+def sample_image(name, model, sampler, sample_start_code, sample_emb, step, ddim_steps, save=False):
     start_code = sample_start_code
     device = sample_start_code.device
 
@@ -179,7 +188,9 @@ def write_sample_png(name, model, sampler, sample_start_code, sample_emb, step, 
                 x_sample = 255. * x_sample
                 x_sample = x_sample.astype(np.uint8)
                 img = Image.fromarray(x_sample)
-                img.save(f"{name}/{step:05}.png")
+                if save:
+                    img.save(f"{name}/{step:05}.png")
+                return x_samples_ddim
 
 def process_rule(rule):
     if '~' not in rule:
@@ -326,7 +337,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
         sample_emb = model.get_learned_conditioning([sample_prompt])
 
         os.makedirs("samples/"+name, exist_ok=True)
-        write_sample_png("samples/"+name, model, sampler, sample_start_code, sample_emb, 0, ddim_steps)
+        sample_image("samples/"+name, model, sampler, sample_start_code, sample_emb, 0, ddim_steps, save=True)
     accumulation_counter=0
 
     dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts")
@@ -408,6 +419,23 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 loss_rule = rule_obj['alpha']*loss_replacement
                 rule_losses.append(loss_rule)
 
+            elif '^' in rule:
+                concepts = rule.split('^')
+                original_concept = concepts[0]
+                target_concept = concepts[1]
+
+                emb_t = model.get_learned_conditioning([target_concept])
+                with torch.no_grad():
+                    emb_o = model.get_learned_conditioning([original_concept])
+                    start_code = torch.randn((1, 4, 64, 64)).to(devices[0])
+
+                img1 = sample_image("samples/"+name, model, sampler, start_code, emb_o, 0, ddim_steps, save=False)
+                img2 = sample_image("samples/"+name, model, sampler, start_code, emb_t, 0, ddim_steps, save=False)
+                loss_rule = rule_obj['alpha']* compare(img1, img2)
+                rule_losses.append(loss_rule)
+
+
+
             elif '++' == rule[-2:] or rule[-2:] == '--':
                 # Handle the concept insertion case (concept++)
                 concept_to_insert = rule[:-2]
@@ -469,9 +497,6 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 loss_rule = rule_obj["alpha"]*0.01*cosine_similarity
                 rule_losses.append(loss_rule)
 
-            elif rule[-1] == '^':
-                raise ValueError('^ removed (use ++)')
-
             # Handle the concept removal case (concept--)
             elif rule[-2:] == '--':
                 concept_to_reduce = rule[:-2]
@@ -514,7 +539,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
             opt.zero_grad()
             if sample_prompt is not None:
                 os.makedirs("samples/"+name, exist_ok=True)
-                write_sample_png("samples/"+name, model, sampler, sample_start_code, sample_emb, (accumulation_counter//accumulation_steps), ddim_steps)
+                sample_image("samples/"+name, model, sampler, sample_start_code, sample_emb, (accumulation_counter//accumulation_steps), ddim_steps, save=True)
 
 
         # save checkpoint and loss curve
