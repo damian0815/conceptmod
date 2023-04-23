@@ -45,8 +45,8 @@ def generate_image(prompt, negative_prompt, lora):
     prompt_ = prompt.replace("LORAVALUE",  "{:.14f}".format(lora))
     uid = prompt_+"_"+negative_prompt+"_"+str(seed)+"_"+"{:.14f}".format(lora)
 
-    global image_cache
-    image_cache={}
+    #global image_cache
+    #image_cache={}
     # Check if the image exists in the cache
     if uid in image_cache:
         return image_cache[uid]
@@ -55,10 +55,10 @@ def generate_image(prompt, negative_prompt, lora):
         "seed": seed,
         "width": 512,
         "height": 512,
-        "sampler_name": "DDIM",
+        "sampler_name": "Euler",
         "prompt": prompt_,
         "negative_prompt": negative_prompt,
-        "steps": 40
+        "steps": 28
     }
     #print(" calling: ", prompt_)
 
