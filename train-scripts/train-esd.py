@@ -181,6 +181,8 @@ def sample_image(name, model, sampler, sample_start_code, sample_emb, step, ddim
 
                 x_samples_ddim = model.decode_first_stage(samples_ddim)
                 x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
+                if not save:
+                    return x_samples_ddim.permute(0, 2, 3, 1).squeeze(0)
 
                 x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).squeeze(0).numpy()
                 x_sample = x_samples_ddim
@@ -188,8 +190,7 @@ def sample_image(name, model, sampler, sample_start_code, sample_emb, step, ddim
                 x_sample = 255. * x_sample
                 x_sample = x_sample.astype(np.uint8)
                 img = Image.fromarray(x_sample)
-                if save:
-                    img.save(f"{name}/{step:05}.png")
+                img.save(f"{name}/{step:05}.png")
                 return x_samples_ddim
 
 def process_rule(rule):
