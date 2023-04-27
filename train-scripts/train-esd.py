@@ -343,12 +343,28 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
     dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts")
     orules = list(rules)
+    opt.zero_grad()
+    cache = {}
+
+    # Define a function to generate a unique key for caching
+    def generate_cache_key(model, emb_text):
+        return (id(model), emb_text)
+
+    # Define a function to apply the model and cache the results
+    def apply_model_cache(model, emb_text, z, t_enc_ddpm, emb, cache):
+        key = generate_cache_key(model, emb_text)
+        if key not in cache:
+            cache[key] = model.apply_model(z, t_enc_ddpm, emb)
+            print("Key not in cache", key)
+        else:
+            print("Found key in cache", key)
+        return cache[key]
+
     for i in pbar:
         rules = list(orules)
         if randomly_pull_prompts:
             rule = random.choice(dataset['train']["Prompt"]).replace(":","-").replace("%", " percent ").replace("="," equals ")
             rules += ["~"+rule]
-        print("BEFORE PROCESS", len(rules), "--", rules)
         rules = [item for rule in rules for item in process_rule(rule)]
         print(len(rules), "--", rules)
 
@@ -357,7 +373,15 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
             opt.state = defaultdict(dict)
             move_towards(model_orig, model, alpha=merge_speed)
 
-        opt.zero_grad()
+        start_code = torch.randn((1, 4, 64, 64)).to(devices[0])
+        t_enc = torch.randint(ddim_steps, (1,), device=devices[0])
+        og_num = round((int(t_enc)/ddim_steps)*1000)
+        og_num_lim = round((int(t_enc+1)/ddim_steps)*1000)
+        t_enc_ddpm = torch.randint(og_num, og_num_lim, (1,), device=devices[0])
+        insertion_guidance=negative_guidance
+
+
+        cache.clear()
 
         rule_losses = []
         for rule_params in rules:
@@ -366,13 +390,6 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
             rule = rule_obj['concept']
             if rule == '':
                 continue
-
-            start_code = torch.randn((1, 4, 64, 64)).to(devices[0])
-            t_enc = torch.randint(ddim_steps, (1,), device=devices[0])
-            og_num = round((int(t_enc)/ddim_steps)*1000)
-            og_num_lim = round((int(t_enc+1)/ddim_steps)*1000)
-            t_enc_ddpm = torch.randint(og_num, og_num_lim, (1,), device=devices[0])
-            insertion_guidance=negative_guidance
 
 
             if '=' in rule:
@@ -391,11 +408,11 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                     z = quick_sample_till_t(emb_t.to(devices[0]), start_guidance, start_code, int(t_enc))
 
                     # Get conditional and unconditional scores from frozen model at time step t and image z
-                    e_0 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]))
-                    e_o = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_t.to(devices[1]))
+                    e_0 = apply_model_cache(model_orig, '', z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]), cache)
+                    e_o = apply_model_cache(model_orig, target_concept, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_t.to(devices[1]), cache)
 
                 # Get conditional scores from ESD model for the original concept
-                e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]))
+                e_t = apply_model_cache(model, original_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]), cache)
 
                 # Compute the loss function for concept replacement
                 loss_replacement = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (negative_guidance * (e_o.to(devices[0]) - e_0.to(devices[0]))))
@@ -412,9 +429,9 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
                 with torch.no_grad():
                     z = quick_sample_till_t(emb_t.to(devices[0]), start_guidance, start_code, int(t_enc))
-                    e_o = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_t.to(devices[1]))
+                    e_o = apply_model_cache(model_orig, target_concept, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_t.to(devices[1]), cache)
 
-                e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]))
+                e_t = apply_model_cache(model, original_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]), cache)
 
                 loss_replacement = criteria(e_t.to(devices[0]), e_o.to(devices[0]))
                 loss_rule = rule_obj['alpha']*loss_replacement
@@ -452,11 +469,11 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                     z = quick_sample_till_t(emb_0.to(devices[0]), start_guidance, start_code, int(t_enc))
 
                     # Get conditional and unconditional scores from frozen model at time step t and image z
-                    e_0 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]))
-                    e_i = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_i.to(devices[1]))
+                    e_0 = apply_model_cache(model_orig, '', z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]), cache)
+                    e_i = apply_model_cache(model_orig, concept_to_insert, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_i.to(devices[1]), cache)
 
                 # Get conditional scores from ESD model for the concept to insert
-                e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_i.to(devices[0]))
+                e_t = apply_model_cache(model, concept_to_insert, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_i.to(devices[0]), cache)
 
                 # Compute the loss function to encourage the presence of the concept in the generated images
                 loss_i = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (insertion_guidance * (e_i.to(devices[0]) - e_0.to(devices[0]))))
@@ -478,11 +495,11 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                     z = quick_sample_till_t(emb_0.to(devices[0]), start_guidance, start_code, int(t_enc))
 
                     # Get conditional and unconditional scores from frozen model at time step t and image z
-                    e_0 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]))
-                    output_c1 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_c1.to(devices[1]))
+                    e_0 = apply_model_cache(model_orig, '', z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]), cache)
+                    output_c1 = apply_model_cache(model_orig, concept1, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_c1.to(devices[1]), cache)
 
                 # Get conditional scores from ESD model for the two concepts
-                output_c2 = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_c2.to(devices[0]))
+                output_c2 = apply_model_cache(model, concept2, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_c2.to(devices[0]), cache)
                 diff_c1 = output_c1 - e_0
                 diff_c2 = output_c2 - e_0.to(devices[0])
 
@@ -511,11 +528,11 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                     z = quick_sample_till_t(emb_0.to(devices[0]), -start_guidance, start_code, int(t_enc))
 
                     # Get conditional and unconditional scores from frozen model at time step t and image z
-                    e_0 = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]))
-                    e_r = model_orig.apply_model(z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_r.to(devices[1]))
+                    e_0 = apply_model_cache(model_orig, '', z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]), cache)
+                    e_r = apply_model_cache(model_orig, concept_to_reduce, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_r.to(devices[1]), cache)
 
                 # Get conditional scores from ESD model for the concept to reduce
-                e_t = model.apply_model(z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_r.to(devices[0]))
+                e_t = apply_model_cache(model, concept_to_reduce, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_r.to(devices[0]), cache)
 
                 # Compute the loss function to discourage the presence of the concept in the generated images
                 loss_i = criteria(e_t.to(devices[0]), e_0.to(devices[0]) + (insertion_guidance * (e_r.to(devices[0]) - e_0.to(devices[0]))))

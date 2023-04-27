@@ -28,7 +28,7 @@ model = None
 def score_image(prompt, fullpath):
     global model
     if model is None:
-        model = reward.load("ImageReward-v1.0")
+        model = reward.load("ImageReward-v1.0").to("cuda:0")
     with torch.no_grad():
         return model.score(prompt, fullpath)
 
