@@ -25,6 +25,7 @@ from moviepy.video.fx import fadein, fadeout
 image_cache = {}
 
 model = None
+folder = None
 def score_image(prompt, fullpath):
     global model
     if model is None:
@@ -32,15 +33,13 @@ def score_image(prompt, fullpath):
     with torch.no_grad():
         return model.score(prompt, fullpath)
 
-folder = "anim"
-for filename in os.listdir(folder):
-    if filename.endswith(".png"):
-        os.unlink(os.path.join(folder, filename))
 
 seed = random.SystemRandom().randint(0, 2**32-1)
 dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts")
+txt2imgurl = "http://192.168.0.180:7777/sdapi/v1/txt2img"
+
 def generate_image(prompt, negative_prompt, lora):
-    url = "http://192.168.0.180:7777/sdapi/v1/txt2img"
+    url = txt2imgurl
     headers = {"Content-Type": "application/json"}
     prompt_ = prompt.replace("LORAVALUE",  "{:.14f}".format(lora))
     nprompt_ = negative_prompt.replace("LORAVALUE",  "{:.14f}".format(lora))
@@ -229,11 +228,10 @@ def find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compar
     global image_cache
 
 
-    # Create the "anim" directory if it doesn't exist
-    os.makedirs("anim", exist_ok=True)
+    # Create the folder directory if it doesn't exist
     prev_image = generate_image(prompt, negative_prompt, lora_start)
     del image_cache[find_closest_cache_key()]
-    prev_image.save(os.path.join("anim", f"image_0000.png"))
+    prev_image.save(os.path.join(folder, f"image_0000.png"))
     images.append(prev_image)
     image_idx = 1
     budget = max_budget-1
@@ -254,14 +252,14 @@ def find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compar
                 assert series[-1] <= optimal_lora
             series += [optimal_lora]
             images.append(current_image)
-            current_image.save(os.path.join("anim", f"image_{image_idx:04d}.png"))
+            current_image.save(os.path.join(folder, f"image_{image_idx:04d}.png"))
             image_idx += 1
             if budget <= 0:
                 while(len(image_cache.keys()) > 0):
                     current_image = image_cache[find_closest_cache_key()]
                     del image_cache[find_closest_cache_key()]
                     images.append(current_image)
-                    current_image.save(os.path.join("anim", f"image_{image_idx:04d}.png"))
+                    current_image.save(os.path.join(folder, f"image_{image_idx:04d}.png"))
                     image_idx += 1
 
 
@@ -288,8 +286,8 @@ def find_best_seed(prompt, negative_prompt, num_seeds=10, steps=2, max_compare=2
         generated_images = find_images(prompt, negative_prompt, lora_start, lora_end, steps, max_compare)
 
         # Score the images and sum the scores
-        score1 = score_image(prompt, "anim/image_0000.png")
-        score2 = score_image(prompt, "anim/image_0001.png")*3
+        score1 = score_image(prompt, folder + "/image_0000.png")
+        score2 = score_image(prompt, folder + "/image_0001.png")*3
         c = -compare(generated_images[0], generated_images[1])/8.0
         #c = calculate_ssim(generated_images[0], generated_images[1])*2
         total_score = score1 + score2 + c
@@ -308,6 +306,8 @@ def find_best_seed(prompt, negative_prompt, num_seeds=10, steps=2, max_compare=2
     return best_seed, best_score, bscore1, bscore2
 
 def main():
+    global txt2imgurl
+    global folder
     parser = argparse.ArgumentParser(description='Generate images for a video between lora_start and lora_end')
     parser.add_argument('-s', '--lora_start', type=Decimal, required=True, help='Start lora value')
     parser.add_argument('-e', '--lora_end', type=Decimal, required=True, help='End lora value')
@@ -323,8 +323,16 @@ def main():
     parser.add_argument('-np', '--negative_prompt', type=str, default="weird image.", help='negative prompt')
     parser.add_argument('-pp', '--prompt_addendum', type=str, default="<lora:weird_image.:1.0>", help='add this to the end of prompts')
     parser.add_argument('-p', '--prompt', type=str, default=None, help='Prompt, defaults to random from Gustavosta/Stable-Diffusion-Prompts')
+    parser.add_argument('-f', '--folder', type=str, default="anim", help='Working directory')
+    parser.add_argument('-url', '--text_to_image_url', type=str, default="http://192.168.0.180:7777/sdapi/v1/txt2img", help='Url for text to image')
     args = parser.parse_args()
 
+    txt2imgurl = args.text_to_image_url
+    folder = args.folder
+    os.makedirs(folder, exist_ok=True)
+    for filename in os.listdir(folder):
+        if filename.endswith(".png"):
+            os.unlink(os.path.join(folder, filename))
 
     prompt = args.prompt
     if prompt is None:
@@ -355,7 +363,7 @@ def main():
                 os.unlink(os.path.join(folder, filename))
 
         for i, image in enumerate(generated_images):
-            image.save(os.path.join("anim", f"image_{i+1:04d}.png"))
+            image.save(os.path.join(folder, f"image_{i+1:04d}.png"))
 
     # Create an animated movie
     fps = len(generated_images)//5
@@ -365,7 +373,7 @@ def main():
 
     if args.reverse:
         generated_images = reversed(generated_images)
-    video_index = create_animated_movie("anim", "v4", fps=fps)
+    video_index = create_animated_movie(folder, "v4", fps=fps)
 
     # Save details to a JSON file
     details = {
@@ -389,7 +397,7 @@ def main():
 def create_animated_movie(images_folder, output_folder, fps=15):
     os.makedirs(output_folder, exist_ok=True)
 
-    # Create a list of filepaths for the images in the "anim" directory
+    # Create a list of filepaths for the images in the folder directory
     image_filepaths = [os.path.join(images_folder, t) for t in sorted(os.listdir(images_folder))]
 
     # Create a clip from the image sequence
