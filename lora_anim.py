@@ -43,6 +43,7 @@ def generate_image(prompt, negative_prompt, lora):
     url = "http://192.168.0.180:7777/sdapi/v1/txt2img"
     headers = {"Content-Type": "application/json"}
     prompt_ = prompt.replace("LORAVALUE",  "{:.14f}".format(lora))
+    nprompt_ = negative_prompt.replace("LORAVALUE",  "{:.14f}".format(lora))
     uid = prompt_+"_"+negative_prompt+"_"+str(seed)+"_"+"{:.14f}".format(lora)
 
     #global image_cache
@@ -57,7 +58,7 @@ def generate_image(prompt, negative_prompt, lora):
         "height": 512,
         "sampler_name": "Euler",
         "prompt": prompt_,
-        "negative_prompt": negative_prompt,
+        "negative_prompt": nprompt_,
         "steps": 28
     }
     #print(" calling: ", prompt_)
@@ -288,13 +289,14 @@ def find_best_seed(prompt, negative_prompt, num_seeds=10, steps=2, max_compare=2
 
         # Score the images and sum the scores
         score1 = score_image(prompt, "anim/image_0000.png")
-        score2 = score_image(prompt, "anim/image_0001.png")
-        c = compare(generated_images[0], generated_images[1])
-        total_score = score1 + 3*score2 - c / 16.0
-        #print("Score 1:", score1, "Score 2", score2, "Comparison", c, "total score", total_score)
+        score2 = score_image(prompt, "anim/image_0001.png")*3
+        c = -compare(generated_images[0], generated_images[1])/8.0
+        #c = calculate_ssim(generated_images[0], generated_images[1])*2
+        total_score = score1 + score2 + c
+        print("Score 1:", score1, "Score 2", score2, "Comparison", c, "total score", total_score)
 
         # Print the scores for debugging
-        print(f"Seed: {_}, Score1: {score1}, Score2: {score2}, Total: {total_score}")
+        #print(f"Seed: {_}, Score1: {score1}, Score2: {score2}, Total: {total_score}")
 
         # Update the best seed and score if the current total score is better
         if total_score > best_score:
@@ -315,6 +317,8 @@ def main():
     parser.add_argument('-b', '--budget', type=int, default=120, help='budget of image frames')
     parser.add_argument('-t', '--tolerance', type=Decimal, default=2e-14, help='Tolerance for optimal lora (default: 2e-14)')
     parser.add_argument('-l', '--lora', type=str, required=True, help='Lora to use')
+    parser.add_argument('--negative_lora', action='store_true', default=False)
+    parser.add_argument('--reverse', action='store_true', default=False)
     parser.add_argument('-lp', '--lora_prompt', type=str, default="", help='Lora prompt')
     parser.add_argument('-np', '--negative_prompt', type=str, default="weird image.", help='negative prompt')
     parser.add_argument('-pp', '--prompt_addendum', type=str, default="<lora:weird_image.:1.0>", help='add this to the end of prompts')
@@ -325,40 +329,49 @@ def main():
     prompt = args.prompt
     if prompt is None:
         prompt = random.choice(dataset['train']["Prompt"])
-    lora_prompt = "<lora:"+args.lora+":LORAVALUE>"+args.prompt_addendum+" "+args.lora_prompt
+    lora_prompt = ""
+    negative_prompt = args.negative_prompt
+    if args.negative_lora == False:
+        lora_prompt += "<lora:"+args.lora+":LORAVALUE>"
+    else:
+        negative_prompt += "<lora:"+args.lora+":LORAVALUE>"
+    lora_prompt+=args.prompt_addendum+" "+args.lora_prompt
     prompt = (prompt + ' ' + lora_prompt).strip()
 
     # Find the best seed
-    best_seed, best_score, score1, score2 = find_best_seed(prompt, args.negative_prompt, num_seeds=args.num_seeds, steps=2, max_compare=1000, lora_start=args.lora_start, lora_end=args.lora_end)
+    best_seed, best_score, score1, score2 = find_best_seed(prompt, negative_prompt, num_seeds=args.num_seeds, steps=2, max_compare=1000, lora_start=args.lora_start, lora_end=args.lora_end)
     print(f"Best seed: {best_seed}, Best score: {best_score}")
 
     # Now generate images with the best seed, compare=-0.77, and steps=32
     global seed
     seed = best_seed  # Set the best seed as the current seed
-    images = find_images(prompt, args.negative_prompt, args.lora_start, args.lora_end, args.steps, args.max_compare, args.tolerance, args.budget)
+    images = find_images(prompt, negative_prompt, args.lora_start, args.lora_end, args.steps, args.max_compare, args.tolerance, args.budget)
     #print("Smoothing frames. This may take a while (deleting repeat sequences")
-    #generated_images = smooth(images)
-    #print("Before smoothing:", len(images), "frames after:", len(generated_images), "frames")
-    generated_images = images
-    #for filename in os.listdir(folder):
-    #    if filename.endswith(".png"):
-    #        os.unlink(os.path.join(folder, filename))
+    generated_images = smooth(images)
+    print("Before smoothing:", len(images), "frames after:", len(generated_images), "frames")
+    if len(images) != len(generated_images):
+        for filename in os.listdir(folder):
+            if filename.endswith(".png"):
+                os.unlink(os.path.join(folder, filename))
 
-    #for i, image in enumerate(generated_images):
-    #    image.save(os.path.join("anim", f"image_{i+1:04d}.png"))
+        for i, image in enumerate(generated_images):
+            image.save(os.path.join("anim", f"image_{i+1:04d}.png"))
 
     # Create an animated movie
     fps = len(generated_images)//5
     if(fps ==0):
         fps = 1
     print("Generated", len(generated_images), "fps", fps)
+
+    if args.reverse:
+        generated_images = reversed(generated_images)
     video_index = create_animated_movie("anim", "v4", fps=fps)
 
     # Save details to a JSON file
     details = {
         "seed": best_seed,
         "prompt": prompt,
-        "negative_prompt": args.negative_prompt,
+        "negative_prompt": negative_prompt,
         "prompt_addendum": args.prompt_addendum,
         "lora": args.lora,
         "lora_prompt": args.lora_prompt,
