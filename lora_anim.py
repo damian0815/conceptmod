@@ -36,7 +36,7 @@ def score_image(prompt, fullpath):
 
 seed = random.SystemRandom().randint(0, 2**32-1)
 dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts")
-txt2imgurl = "http://192.168.0.180:7777/sdapi/v1/txt2img"
+txt2imgurl = None
 
 def generate_image(prompt, negative_prompt, lora):
     url = txt2imgurl
@@ -324,7 +324,7 @@ def main():
     parser.add_argument('-pp', '--prompt_addendum', type=str, default="<lora:weird_image.:1.0>", help='add this to the end of prompts')
     parser.add_argument('-p', '--prompt', type=str, default=None, help='Prompt, defaults to random from Gustavosta/Stable-Diffusion-Prompts')
     parser.add_argument('-f', '--folder', type=str, default="anim", help='Working directory')
-    parser.add_argument('-url', '--text_to_image_url', type=str, default="http://192.168.0.180:7777/sdapi/v1/txt2img", help='Url for text to image')
+    parser.add_argument('-url', '--text_to_image_url', type=str, default="http://localhost:7860/sdapi/v1/txt2img", help='Url for text to image')
     args = parser.parse_args()
 
     txt2imgurl = args.text_to_image_url
