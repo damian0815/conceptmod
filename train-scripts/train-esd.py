@@ -445,7 +445,6 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 emb_t = model.get_learned_conditioning([target_concept])
                 with torch.no_grad():
                     emb_o = model.get_learned_conditioning([original_concept])
-                    start_code = torch.randn((1, 4, 64, 64)).to(devices[0])
 
                 img1 = sample_image("samples/"+name, model, sampler, start_code, emb_o, 0, ddim_steps, save=False)
                 img2 = sample_image("samples/"+name, model, sampler, start_code, emb_t, 0, ddim_steps, save=False)
