@@ -47,6 +47,12 @@ Will erase `boring` concept and exaggerate `vibrant colors` concept.
 ```
 lambda_value default is 0.1
 
+* {random_prompt} : turns into a random prompt from https://huggingface.co/datasets/Gustavosta/Stable-Diffusion-Prompts
+
+Example:
+
+"final boss++:0.4|final boss%{random_prompt}:-0.1"
+
 *experimental*
 
 * Pixelwise l2 loss: For reducing overall movement
