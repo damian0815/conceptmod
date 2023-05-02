@@ -503,7 +503,8 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 e_t = apply_model_cache(model, original_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]), cache, grad=True)
 
 
-                nthoaeus()
+                assert False, "There were no gradients going through here so it's disabled."
+
                 #img1 = sample_image("samples/"+name, model, sampler, start_code, emb_o, 0, ddim_steps, save=False)
                 #img2 = sample_image("samples/"+name, model, sampler, start_code, emb_t, 0, ddim_steps, save=False)
                 #loss_rule = rule_obj['alpha']* compare(img1, img2)
@@ -517,7 +518,8 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
                 e_t = apply_model_cache(model, original_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_t.to(devices[0]), cache, grad=True)
 
-                nsthoaeu()
+                assert False, "There were no gradients going through here so it's disabled."
+
                 #img = sample_image("samples/"+name, model, sampler, start_code, emb_o, 0, ddim_steps, save=False)
                 #loss_rule = -rule_obj['alpha']* score_image(target_concept, img)
                 #rule_losses.append(loss_rule)
