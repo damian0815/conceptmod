@@ -19,9 +19,7 @@ sample_prompt="man, looking serious overlooking city, close up view of face, fac
 # Train on each prompt sequentially
 for prompt in "${prompts[@]}"; do
     echo "Training on prompt: '$prompt'"
-    python train-scripts/train-esd.py --prompt "$prompt" --train_method "$train_method" --devices "$devices" --ckpt_path "$ckpt_path" --negative_guidance "$negative_guidance" --start_guidance "$start_guidance" --iterations "$iterations" --seperator "|" --sample_prompt "$sample_prompt" --accumulation_steps $accumulation_steps \
-        --merge_speed 0.05 \
-        --merge_every 100
+    python train-scripts/train-esd.py --prompt "$prompt" --train_method "$train_method" --devices "$devices" --ckpt_path "$ckpt_path" --negative_guidance "$negative_guidance" --start_guidance "$start_guidance" --iterations "$iterations" --seperator "|" --accumulation_steps $accumulation_steps --sample_prompt "$sample_prompt" 
     echo "Finished training on prompt: '$prompt'"
 done
 

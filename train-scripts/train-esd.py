@@ -12,6 +12,7 @@ from torchvision import transforms
 import os
 from tqdm import tqdm
 from einops import rearrange
+import ImageReward as reward
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -25,6 +26,7 @@ import shutil
 import pdb
 import argparse
 from convertModels import savemodelDiffusers
+import torchvision.transforms.functional as F
 
 
 import time
@@ -33,6 +35,51 @@ from PIL import Image
 
 def compare(img1, img2):
     return ((img1-img2)**2).mean()
+
+def score_tensor(self, prompt, image):
+    # text encode
+    text_input = self.blip.tokenizer(prompt, padding='max_length', truncation=True, max_length=35, return_tensors="pt").to(self.device)
+    # image encode
+
+    image = image.permute(2, 0, 1)
+
+    # Define the transformation pipeline
+    resize_size = 224
+    normalize_mean = (0.48145466, 0.4578275, 0.40821073)
+    normalize_std = (0.26862954, 0.26130258, 0.27577711)
+
+    # Apply the transformations
+    image_resized = F.resize(image, (resize_size, resize_size))
+    image_normalized = F.normalize(image_resized, mean=normalize_mean, std=normalize_std)
+    image_normalized = image_normalized.to(torch.float32)
+
+    image_embeds = self.blip.visual_encoder(image_normalized.unsqueeze(0))
+    # text encode cross attention with image
+    image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(self.device)
+    text_output = self.blip.text_encoder(text_input.input_ids,
+                                            attention_mask = text_input.attention_mask,
+                                            encoder_hidden_states = image_embeds,
+                                            encoder_attention_mask = image_atts,
+                                            return_dict = True,
+                                        )
+    txt_features = text_output.last_hidden_state[:,0,:].float() # (feature_dim)
+    rewards = self.mlp(txt_features)
+    rewards = (rewards - self.mean) / self.std
+    return rewards
+
+reward.ImageReward.score_tensor = score_tensor
+
+
+
+model = None
+def score_image(prompt, img):
+    global model
+    if model is None:
+        model = reward.load("ImageReward-v1.0").to("cuda:0")
+    return model.score_tensor(prompt, img)
+
+def proximal_operator_l1(tensor, lmbd):
+    return torch.sign(tensor) * torch.relu(torch.abs(tensor) - lmbd)
 
 # Util Functions
 def load_model_from_config(config, ckpt, device="cpu", verbose=False):
@@ -180,9 +227,9 @@ def sample_image(name, model, sampler, sample_start_code, sample_emb, step, ddim
                                                  x_T=start_code)
 
                 x_samples_ddim = model.decode_first_stage(samples_ddim)
-                x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
                 if not save:
                     return x_samples_ddim.permute(0, 2, 3, 1).squeeze(0)
+                x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
 
                 x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).squeeze(0).numpy()
                 x_sample = x_samples_ddim
@@ -325,7 +372,8 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
     opt = torch.optim.Adam(parameters, lr=lr)
 
 
-    criteria = torch.nn.MSELoss()
+    criteria = torch.nn.SmoothL1Loss()
+
     history = []
 
     name = f'compvis-word_{word_print}-method_{train_method}-sg_{start_guidance}-ng_{negative_guidance}-iter_{iterations}-lr_{lr}'
@@ -347,13 +395,13 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
     cache = {}
 
     # Define a function to generate a unique key for caching
-    def generate_cache_key(model, emb_text):
-        return (id(model), emb_text)
+    def generate_cache_key(model, emb_text, grad):
+        return (id(model), emb_text, grad)
 
     # Define a function to apply the model and cache the results
-    def apply_model_cache(model, emb_text, z, t_enc_ddpm, emb, cache):
-        key = generate_cache_key(model, emb_text)
-        if key not in cache:
+    def apply_model_cache(model, emb_text, z, t_enc_ddpm, emb, cache, grad=False):
+        key = generate_cache_key(model, emb_text, grad)
+        if grad or key not in cache:
             cache[key] = model.apply_model(z, t_enc_ddpm, emb)
             print("Key not in cache", key)
         else:
@@ -362,9 +410,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
     for i in pbar:
         rules = list(orules)
-        if randomly_pull_prompts:
-            rule = random.choice(dataset['train']["Prompt"]).replace(":","-").replace("%", " percent ").replace("="," equals ")
-            rules += ["~"+rule]
+        random_prompt = random.choice(dataset['train']["Prompt"]).replace(":","-").replace("%", " percent ").replace("="," equals ")
         rules = [item for rule in rules for item in process_rule(rule)]
         print(len(rules), "--", rules)
 
@@ -386,6 +432,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
         rule_losses = []
         for rule_params in rules:
             rule_index = rules.index(rule_params)
+            rule_params = rule_params.replace("{random_prompt}", random_prompt)
             rule_obj = parse_input_string(rule_params)
             rule = rule_obj['concept']
             if rule == '':
@@ -403,6 +450,8 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 emb_o = model.get_learned_conditioning([original_concept])
                 emb_t = model.get_learned_conditioning([target_concept])
 
+                assert target_concept != ""
+
                 with torch.no_grad():
                     # Generate an image with the target concept from ESD model
                     z = quick_sample_till_t(emb_t.to(devices[0]), start_guidance, start_code, int(t_enc))
@@ -411,12 +460,14 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                     e_0 = apply_model_cache(model_orig, '', z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]), cache)
                     e_o = apply_model_cache(model_orig, target_concept, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_t.to(devices[1]), cache)
 
+                    e_02 = apply_model_cache(model, '', z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_0.to(devices[0]), cache)
+
                 # Get conditional scores from ESD model for the original concept
-                e_t = apply_model_cache(model, original_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]), cache)
+                e_t = apply_model_cache(model, original_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]), cache, grad=True)
 
                 # Compute the loss function for concept replacement
-                loss_replacement = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (negative_guidance * (e_o.to(devices[0]) - e_0.to(devices[0]))))
-                loss_rule = rule_obj['alpha']*loss_replacement
+                loss_replacement = criteria(e_t.to(devices[0]), e_02.to(devices[0])) - (negative_guidance * (e_o.to(devices[0])- e_0.to(devices[0])))
+                loss_rule = rule_obj['alpha']*loss_replacement.mean()
                 rule_losses.append(loss_rule)
 
             elif '#' in rule:
@@ -431,10 +482,10 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                     z = quick_sample_till_t(emb_t.to(devices[0]), start_guidance, start_code, int(t_enc))
                     e_o = apply_model_cache(model_orig, target_concept, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_t.to(devices[1]), cache)
 
-                e_t = apply_model_cache(model, original_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]), cache)
+                e_t = apply_model_cache(model, original_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]), cache, grad=True)
 
                 loss_replacement = criteria(e_t.to(devices[0]), e_o.to(devices[0]))
-                loss_rule = rule_obj['alpha']*loss_replacement
+                loss_rule = rule_obj['alpha']*loss_replacement.mean()
                 rule_losses.append(loss_rule)
 
             elif '^' in rule:
@@ -443,13 +494,34 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 target_concept = concepts[1]
 
                 emb_t = model.get_learned_conditioning([target_concept])
-                with torch.no_grad():
-                    emb_o = model.get_learned_conditioning([original_concept])
+                emb_o = model.get_learned_conditioning([original_concept])
 
-                img1 = sample_image("samples/"+name, model, sampler, start_code, emb_o, 0, ddim_steps, save=False)
-                img2 = sample_image("samples/"+name, model, sampler, start_code, emb_t, 0, ddim_steps, save=False)
-                loss_rule = rule_obj['alpha']* compare(img1, img2)
-                rule_losses.append(loss_rule)
+                with torch.no_grad():
+                    z = quick_sample_till_t(emb_t.to(devices[0]), start_guidance, start_code, int(t_enc))
+                    e_o = apply_model_cache(model_orig, target_concept, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_t.to(devices[1]), cache)
+
+                e_t = apply_model_cache(model, original_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]), cache, grad=True)
+
+
+                nthoaeus()
+                #img1 = sample_image("samples/"+name, model, sampler, start_code, emb_o, 0, ddim_steps, save=False)
+                #img2 = sample_image("samples/"+name, model, sampler, start_code, emb_t, 0, ddim_steps, save=False)
+                #loss_rule = rule_obj['alpha']* compare(img1, img2)
+                #rule_losses.append(loss_rule)
+                
+
+            elif rule[0]==';':
+                target_concept = rule[1:]
+
+                emb_t = model.get_learned_conditioning([target_concept])
+
+                e_t = apply_model_cache(model, original_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_t.to(devices[0]), cache, grad=True)
+
+                nsthoaeu()
+                #img = sample_image("samples/"+name, model, sampler, start_code, emb_o, 0, ddim_steps, save=False)
+                #loss_rule = -rule_obj['alpha']* score_image(target_concept, img)
+                #rule_losses.append(loss_rule)
+
 
 
 
@@ -457,7 +529,9 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 # Handle the concept insertion case (concept++)
                 concept_to_insert = rule[:-2]
                 if rule[:-2] == '--':
-                    insertion_guidance = -insertion_guidance
+                    guide = - insertion_guidance
+                else:
+                    guide = insertion_guidance
 
                 # Get text embeddings for unconditional and conditional prompts
                 emb_0 = model.get_learned_conditioning([''])
@@ -465,20 +539,18 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
                 with torch.no_grad():
                     # Generate an image from ESD model
-                    z = quick_sample_till_t(emb_0.to(devices[0]), start_guidance, start_code, int(t_enc))
+                    z = quick_sample_till_t(emb_0.to(devices[0]), guide*start_guidance, start_code, int(t_enc))
 
                     # Get conditional and unconditional scores from frozen model at time step t and image z
                     e_0 = apply_model_cache(model_orig, '', z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]), cache)
                     e_i = apply_model_cache(model_orig, concept_to_insert, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_i.to(devices[1]), cache)
 
                 # Get conditional scores from ESD model for the concept to insert
-                e_t = apply_model_cache(model, concept_to_insert, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_i.to(devices[0]), cache)
+                e_t = apply_model_cache(model, concept_to_insert, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_i.to(devices[0]), cache, grad=True)
 
-                # Compute the loss function to encourage the presence of the concept in the generated images
-                loss_i = criteria(e_t.to(devices[0]), e_0.to(devices[0]) - (insertion_guidance * (e_i.to(devices[0]) - e_0.to(devices[0]))))
-                loss_rule = rule_obj["alpha"]*loss_i
+                loss_i = criteria(e_t.to(devices[0]), e_0.to(devices[0])) - (guide * (e_i.to(devices[0]) - e_0.to(devices[0])))
+                loss_rule = rule_obj["alpha"]*loss_i.mean()
                 rule_losses.append(loss_rule)
-
 
             elif '%' in rule:
                 # Handle the concept orthogonality case (concept1%concept2)
@@ -497,10 +569,11 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                     e_0 = apply_model_cache(model_orig, '', z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]), cache)
                     output_c1 = apply_model_cache(model_orig, concept1, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_c1.to(devices[1]), cache)
 
+                    e_02 = apply_model_cache(model, '', z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_0.to(devices[0]), cache)
                 # Get conditional scores from ESD model for the two concepts
-                output_c2 = apply_model_cache(model, concept2, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_c2.to(devices[0]), cache)
+                output_c2 = apply_model_cache(model, concept2, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_c2.to(devices[0]), cache, grad=True)
                 diff_c1 = output_c1 - e_0
-                diff_c2 = output_c2 - e_0.to(devices[0])
+                diff_c2 = output_c2 - e_02
 
                 diff_c1_flat = diff_c1.view(1, -1)
                 diff_c2_flat = diff_c2.view(1, -1)
@@ -511,36 +584,39 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 # Calculate the cosine similarity between the normalized output embeddings
                 cosine_similarity = torch.abs(torch.dot(normalized_output_c1.view(-1).to(devices[0]), normalized_output_c2.view(-1).to(devices[0])))
 
-                loss_rule = rule_obj["alpha"]*0.01*cosine_similarity
+                loss_rule = rule_obj["alpha"]*0.01*cosine_similarity.mean()
                 rule_losses.append(loss_rule)
 
-            # Handle the concept removal case (concept--)
-            elif rule[-2:] == '--':
-                concept_to_reduce = rule[:-2]
-
-                # Get text embeddings for unconditional and conditional prompts
-                emb_0 = model.get_learned_conditioning([''])
-                emb_r = model.get_learned_conditioning([concept_to_reduce])
-
-                with torch.no_grad():
-                    # Generate an image from ESD model
-                    z = quick_sample_till_t(emb_0.to(devices[0]), -start_guidance, start_code, int(t_enc))
-
-                    # Get conditional and unconditional scores from frozen model at time step t and image z
-                    e_0 = apply_model_cache(model_orig, '', z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]), cache)
-                    e_r = apply_model_cache(model_orig, concept_to_reduce, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_r.to(devices[1]), cache)
-
-                # Get conditional scores from ESD model for the concept to reduce
-                e_t = apply_model_cache(model, concept_to_reduce, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_r.to(devices[0]), cache)
-
-                # Compute the loss function to discourage the presence of the concept in the generated images
-                loss_i = criteria(e_t.to(devices[0]), e_0.to(devices[0]) + (insertion_guidance * (e_r.to(devices[0]) - e_0.to(devices[0]))))
-
-                loss_rule = rule_obj["alpha"]*loss_i
-                rule_losses.append(loss_rule)
             else:
                 assert False, "Unable to parse rule: "+rule
 
+        debug = False
+        if debug:
+            grad_magnitudes = []
+            for rule_index, rule_loss in enumerate(rule_losses):
+                # Zero the gradients before calculating the gradients for the current rule_loss
+                model.zero_grad()
+
+                # Calculate gradients for the current rule_loss
+                print("backprop", rule_index)
+                print(rule_loss)
+                rule_loss.backward(retain_graph=True)
+
+                # Calculate the gradient magnitude for the current rule_loss
+                grad_magnitude = 0
+                for param in model.parameters():
+                    if param.grad is not None:
+                        grad_magnitude += torch.norm(param.grad).item()
+                grad_magnitudes.append(grad_magnitude)
+
+                # Reapply the gradient from the total loss (for the next iteration)
+                #loss.backward()
+            model.zero_grad()
+
+            total_grad_magnitude = sum(grad_magnitudes)
+            percentage_contributions = [gm / total_grad_magnitude * 100 for gm in grad_magnitudes]
+            for j, rule in enumerate(rules):
+                print("{}: {:.2f}%".format(rule, percentage_contributions[j]))
 
         loss = sum(rule_losses)
         # Update weights to erase or reinforce the concept(s)
