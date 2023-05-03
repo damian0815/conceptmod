@@ -324,7 +324,7 @@ def main():
     parser.add_argument('-pp', '--prompt_addendum', type=str, default="<lora:weird_image.:1.0>", help='add this to the end of prompts')
     parser.add_argument('-p', '--prompt', type=str, default=None, help='Prompt, defaults to random from Gustavosta/Stable-Diffusion-Prompts')
     parser.add_argument('-f', '--folder', type=str, default="anim", help='Working directory')
-    parser.add_argument('-url', '--text_to_image_url', type=str, default="http://localhost:7860/sdapi/v1/txt2img", help='Url for text to image')
+    parser.add_argument('-url', '--text_to_image_url', type=str, default="http://localhost:3000/sdapi/v1/txt2img", help='Url for text to image')
     args = parser.parse_args()
 
     txt2imgurl = args.text_to_image_url
