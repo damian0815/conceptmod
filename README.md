@@ -111,7 +111,7 @@ Example:
 
 ## Dependencies
 
-From https://civitai.com/user/_Envy_
+From [https://civitai.com/user/_Envy_](https://civitai.com/user/_Envy_)
 
 Working on windows.
 
