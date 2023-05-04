@@ -117,6 +117,22 @@ https://github.com/ntc-ai/conceptmod/blob/main/docker/Dockerfile_train
 
 Look for the `pip install` and `python3 setup.py develop` sections. Extracting a Lora from a checkpoint has different dependencies.
 
+## Windows Installation
+
+From https://civitai.com/user/_Envy_
+
+```
+conda create --name conceptmod python=3.10
+conda activate conceptmod
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip install pytorch_lightning==1.7.7
+pip install omegaconf einops scipy scikit-image scikit-learn lmdb
+pip install taming-transformers-rom1504 'git+https://github.com/openai/CLIP.git@main#egg=clip' image-reward safetensors datasets matplotlib diffusers kornia
+conda install huggingface_hub
+```
+
+This assumes you've got a working anaconda environment set up.
+
 ## Training Guide
 
 Checkout `train_sequential.sh` for an example.

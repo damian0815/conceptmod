@@ -43,10 +43,9 @@ RUN echo 'pip install --upgrade pip' > /conceptmod/installdeps.sh && \
     echo 'source /conceptmod/installdeps.sh > /dev/null 2>&1 && cd /conceptmod' >> ~/.bashrc
 
 RUN echo 'echo "Welcome to NTC-AI concept training. Train on a phrase and without data."' >> /root/.bashrc
-RUN echo 'echo "civit.ai/user/ntc has example phrases in the model description."' >> /root/.bashrc
+RUN echo 'echo "https://civitai.com/tag/conceptmod?sort=Newest has example phrases in the model descriptions."' >> /root/.bashrc
 RUN echo 'echo "https://github.com/ntc-ai/conceptmod has the DSL breakdown."' >> /root/.bashrc
 RUN echo 'echo ""' >> /root/.bashrc
-RUN echo 'echo "Note: This is not yet complete."' >> /root/.bashrc
 RUN echo 'echo "Example command: python3 train-scripts/train-esd.py --prompt \"psychedelic trip++:0.4|psychedelic trip%{random_prompt}:-0.1\" --train_method selfattn --ckpt_path /sd-models/SDv1-5.ckpt"' >> /root/.bashrc
 
 
