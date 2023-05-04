@@ -2,6 +2,7 @@
 
 # Set the directory path
 dir="../../stable-diffusion-webui2/models/Stable-diffusion/0new/"
+mv -v ../models/*/*.ckpt ../../stable-diffusion-webui2/models/Stable-diffusion/0new
 
 # Loop through all files in the directory
 for file in "${dir}"*; do

@@ -9,7 +9,7 @@ RUN \
 # Clone the required repositories and install dependencies
 RUN git clone https://github.com/CompVis/stable-diffusion.git /conceptmod && \
     git clone https://github.com/ntc-ai/conceptmod /conceptmod_tmp && \
-    rsync -avh --force --remove-source-files /conceptmod_tmp /conceptmod && \
+    rsync -avh --force /conceptmod_tmp/* /conceptmod && \
     rm -rf /conceptmod_tmp && \
     cd /conceptmod && \
     git clone https://github.com/THUDM/ImageReward
@@ -20,13 +20,6 @@ COPY smile.safetensors /stable-diffusion-webui/models/Lora/smile.safetensors
 WORKDIR /conceptmod
 
 RUN echo 'echo "Installing dependencies..."' > ~/.bashrc
-# Create the installdeps.sh script and add it to .bashrc
-RUN echo 'pip install --upgrade pip' > /conceptmod/installdeps.sh && \
-    echo 'pip install torch torchvision numpy scipy scikit-image scikit-learn tqdm lmdb' > /conceptmod/installdeps.sh && \
-    echo 'cd /conceptmod/ImageReward' >> /conceptmod/installdeps.sh && \
-    echo 'python setup.py develop > /dev/null 2>&1' >> /conceptmod/installdeps.sh && \
-    echo 'source /conceptmod/installdeps.sh > /dev/null && 2>&1 cd /conceptmod' >> ~/.bashrc
-
 RUN git clone https://github.com/kohya-ss/sd-scripts.git && \
   cd sd-scripts && \
   python3.10 -m venv lora && \
@@ -35,6 +28,8 @@ RUN git clone https://github.com/kohya-ss/sd-scripts.git && \
   pip install torch torchvision torchaudio -f https://download.pytorch.org/whl/cu117/torch_stable.html && \
   pip install -r requirements.txt
 
+RUN git clone https://github.com/CompVis/taming-transformers.git /taming-transformers
+
 RUN echo 'echo " - - - - - - "' >> /root/.bashrc
 
 RUN echo 'echo "Welcome to NTC-AI concept training. Train on a phrase and without data."' >> /root/.bashrc
@@ -42,7 +37,19 @@ RUN echo 'echo "civit.ai/user/ntc has example phrases in the model description."
 RUN echo 'echo "https://github.com/ntc-ai/conceptmod has the DSL breakdown."' >> /root/.bashrc
 RUN echo 'echo ""' >> /root/.bashrc
 RUN echo 'echo "Note: This is not yet complete."' >> /root/.bashrc
-RUN echo 'echo "Example command: python3 train-scripts/train-esd.py --prompt "psychedelic trip++:0.4|psychedelic trip%{random_prompt}:-0.1" --train_method selfattn" --devices \"0,0\" --ckpt_path /stabe' >> /root/.bashrc
+RUN echo 'echo "Example command: python3 train-scripts/train-esd.py --prompt \"psychedelic trip++:0.4|psychedelic trip%{random_prompt}:-0.1\" --train_method selfattn --ckpt_path /sd-models/SDv1-5.ckpt"' >> /root/.bashrc
+
+# Create the installdeps.sh script and add it to .bashrc
+RUN echo 'pip install --upgrade pip' > /conceptmod/installdeps.sh && \
+    echo 'pip install omegaconf einops transformers torchmetrics datasets torch torchvision numpy scipy scikit-image scikit-learn tqdm lmdb' >> /conceptmod/installdeps.sh && \
+    echo 'pip install git+https://github.com/CompVis/taming-transformers.git@master#egg=taming-transformers' >> /conceptmod/installdeps.sh && \
+    echo 'pip install git+https://github.com/openai/CLIP.git@main#egg=clip' >> /conceptmod/installdeps.sh && \
+    echo 'cd /conceptmod/ImageReward' >> /conceptmod/installdeps.sh && \
+    echo 'python setup.py develop > /dev/null 2>&1' >> /conceptmod/installdeps.sh && \
+    echo 'cd /taming transformers' >> /conceptmod/installdeps.sh && \
+    echo 'python setup.py develop > /dev/null 2>&1' >> /conceptmod/installdeps.sh && \
+    echo 'source /conceptmod/installdeps.sh > /dev/null && 2>&1 cd /conceptmod' >> ~/.bashrc
+
 
 # Update the relauncher.py script to add --api flag
 RUN sed -i 's/launch_string = "\/workspace\/stable-diffusion-webui\/webui.sh -f"/launch_string = "\/workspace\/stable-diffusion-webui\/webui.sh -f --api"/' /stable-diffusion-webui/relauncher.py
