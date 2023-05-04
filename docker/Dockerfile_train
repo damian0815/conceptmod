@@ -17,7 +17,7 @@ RUN git clone https://github.com/CompVis/stable-diffusion.git /conceptmod && \
 COPY smile.safetensors /stable-diffusion-webui/models/Lora/smile.safetensors
 
 # Set the working directory
-WORKDIR /conceptmod
+WORKDIR /workspace/conceptmod
 
 RUN echo 'echo "Installing dependencies..."' > ~/.bashrc
 RUN git clone https://github.com/kohya-ss/sd-scripts.git && \
@@ -40,19 +40,23 @@ RUN echo 'pip install --upgrade pip' > /conceptmod/installdeps.sh && \
     echo 'python setup.py develop > /dev/null 2>&1' >> /conceptmod/installdeps.sh && \
     echo 'cd /taming-transformers' >> /conceptmod/installdeps.sh && \
     echo 'python setup.py develop > /dev/null 2>&1' >> /conceptmod/installdeps.sh && \
-    echo 'source /conceptmod/installdeps.sh > /dev/null 2>&1 && cd /conceptmod' >> ~/.bashrc
+    echo 'source /conceptmod/installdeps.sh > /dev/null 2>&1' >> ~/.bashrc && \
+    echo 'mv /conceptmod /workspace && cd /workspace/conceptmod' >> ~/.bashrc && \
+    echo 'ln -s /workspace/conceptmod/models /workspacestable-diffusion-webui/models/Stable-diffusion/conceptmod' >> ~/.bashrc
 
-RUN echo 'echo "Welcome to NTC-AI concept training. Train on a phrase and without data."' >> /root/.bashrc
+RUN echo 'echo "Welcome to conceptmod training. Train on a phrase and without data."' >> /root/.bashrc
 RUN echo 'echo "https://civitai.com/tag/conceptmod?sort=Newest has example phrases in the model descriptions."' >> /root/.bashrc
-RUN echo 'echo "https://github.com/ntc-ai/conceptmod has the DSL breakdown."' >> /root/.bashrc
+RUN echo 'echo "https://github.com/ntc-ai/conceptmod has more documentation."' >> /root/.bashrc
 RUN echo 'echo ""' >> /root/.bashrc
-RUN echo 'echo "Example command: python3 train-scripts/train-esd.py --prompt \"psychedelic trip++:0.4|psychedelic trip%{random_prompt}:-0.1\" --train_method selfattn --ckpt_path /sd-models/SDv1-5.ckpt"' >> /root/.bashrc
+RUN echo 'echo "Transfer your chosen checkpoint in safetensors format to /workspace/stable-diffusion-webui/models/Stable-diffusion/mycheckpoint.safetensors"' >> /root/.bashrc
+RUN echo 'echo ""' >> /root/.bashrc
+RUN echo 'echo "Example command: python3 train-scripts/train-esd.py --prompt \"psychedelic trip++:0.4|psychedelic trip%{random_prompt}:-0.1\" --train_method selfattn --ckpt_path /workspace/stable-diffusion-webui/models/Stable-diffusion/mycheckpoint.safetensors"' >> /root/.bashrc
 
 
 
 # Update the relauncher.py script to add --api flag
 RUN sed -i 's/launch_string = "\/workspace\/stable-diffusion-webui\/webui.sh -f"/launch_string = "\/workspace\/stable-diffusion-webui\/webui.sh -f --api"/' /stable-diffusion-webui/relauncher.py
 EXPOSE 3000
-RUN ln -s /conceptmod/models /stable-diffusion-webui/models/Stable-diffusion/conceptmod
+RUN 
 # Run the anim.sh script
 CMD ["bash", "/start.sh"]

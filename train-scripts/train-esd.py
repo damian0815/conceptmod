@@ -12,7 +12,7 @@ from torchvision import transforms
 import os
 from tqdm import tqdm
 from einops import rearrange
-import ImageReward as reward
+#import ImageReward as reward
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -67,7 +67,7 @@ def score_tensor(self, prompt, image):
     rewards = (rewards - self.mean) / self.std
     return rewards
 
-reward.ImageReward.score_tensor = score_tensor
+#reward.ImageReward.score_tensor = score_tensor
 
 
 
