@@ -10,6 +10,23 @@ Example: 'vibrant colors++|boring--'
 
 Will erase `boring` concept and exaggerate `vibrant colors` concept.
 
+## New - train or animate on runpod
+
+Usage examples and training phrases available on civit:
+
+[https://civitai.com/tag/conceptmod?sort=Newest](https://civitai.com/tag/conceptmod?sort=Newest)
+
+New! Use conceptmod easily:
+
+animate any lora: [https://runpod.io/gsc?template=gp2czwaknt&ref=xf9c949d](https://runpod.io/gsc?template=gp2czwaknt&ref=xf9c949d)
+
+train on a phrase: [https://runpod.io/gsc?template=8y3jhbola2&ref=xf9c949d](https://runpod.io/gsc?template=8y3jhbola2&ref=xf9c949d)
+
+See the readme on runpod for details on how to use these. Tag it with `conceptmod` if you release on civit.ai.
+
+* animation: the community cloud is cheaper, 3070 is fine. Total costs ~ $0.05 per video
+* train: requires 24 GB vram at least. Total costs ~ $5 per Lora
+
 ## Concept modifications
 
 * Exaggerate: To exaggerate a concept, use the "++" operator.
