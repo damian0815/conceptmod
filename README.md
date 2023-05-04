@@ -109,17 +109,11 @@ Example:
 * Download the weights from [here]([https://huggingface.co/CompVis/stable-diffusion-v-1-4-original](https://huggingface.co/CompVis/stable-diffusion-v-1-4-original/resolve/main/sd-v1-4-full-ema.ckpt)) and move them to `stable-diffusion/models/ldm/` (This will be `ckpt_path` variable in `train-scripts/train-esd.py`)
 * [Only for training] To convert your trained models to diffusers download the diffusers Unet config from [here](https://huggingface.co/CompVis/stable-diffusion-v1-4/blob/main/unet/config.json)  (This will be `diffusers_config_path` variable in `train-scripts/train-esd.py`)
 
-## Other dependencies
-
-Please see this dockerfile for the list of dependencies you need:
-
-https://github.com/ntc-ai/conceptmod/blob/main/docker/Dockerfile_train
-
-Look for the `pip install` and `python3 setup.py develop` sections. Extracting a Lora from a checkpoint has different dependencies.
-
-## Windows Installation
+## Dependencies
 
 From https://civitai.com/user/_Envy_
+
+Working on windows.
 
 ```
 conda create --name conceptmod python=3.10
@@ -132,6 +126,14 @@ conda install huggingface_hub
 ```
 
 This assumes you've got a working anaconda environment set up.
+
+## Dependency issues
+
+Please see this dockerfile for the list of dependencies you need:
+
+https://github.com/ntc-ai/conceptmod/blob/main/docker/Dockerfile_train
+
+Look for the `pip install` and `python3 setup.py develop` sections. Extracting a Lora from a checkpoint has different dependencies.
 
 ## Training Guide
 
