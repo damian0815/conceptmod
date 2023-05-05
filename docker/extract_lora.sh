@@ -16,6 +16,9 @@ model=$1
 
 # Loop through all files in the directory
 for file in "${dir}/"*; do
+    # Check if the item is a file; if it's not, skip to the next item
+    [ -f "${file}" ] || continue
+
     # Extract the filename without extension
     filename=$(basename -- "${file%.*}")
 
