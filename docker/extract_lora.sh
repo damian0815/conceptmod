@@ -25,7 +25,7 @@ for file in "${dir}/"*; do
     # Remove special characters from the filename
     clean_filename=$(echo "${filename}" | tr -d '|~#:')
 
-    dir_replaced=$(echo "$dir" | sed 's/\/models\/Stable-diffusion\//\/Lora\//')
+    dir_replaced=$(echo "$dir" | sed 's/\/models\/Stable-diffusion\/conceptmod\//\/Lora\//')
     mkdir -p "$dir_replaced"
     target="$dir_replaced/${clean_filename}.safetensors"
 
