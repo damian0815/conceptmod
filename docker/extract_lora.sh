@@ -37,6 +37,7 @@ for file in "${dir}/"*; do
             --save_to "${target}" \
             --model_org "${model}" \
             --model_tuned "${file}"
+        echo "Lora at $target"
     else
         echo "Skipping ${filename}, target file already exists."
     fi
