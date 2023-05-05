@@ -12,6 +12,7 @@ source lora/bin/activate
 dir="/workspace/stable-diffusion-webui/models/Stable-diffusion/conceptmod"
 mkdir -p "$dir"
 mv -v /workspace/conceptmod/models/*/*.ckpt "$dir"
+model=$1
 
 # Loop through all files in the directory
 for file in "${dir}/"*; do
@@ -21,7 +22,7 @@ for file in "${dir}/"*; do
     # Remove special characters from the filename
     clean_filename=$(echo "${filename}" | tr -d '|~#:')
 
-    dir_replaced=$(echo "$dir" | sed 's/\/models\//\/Lora\//')
+    dir_replaced=$(echo "$dir" | sed 's/\/models\/Stable-diffusion\//\/Lora\//')
     mkdir -p "$dir_replaced"
     target="$dir_replaced/${clean_filename}.safetensors"
 
