@@ -18,8 +18,8 @@ COPY smile.safetensors /stable-diffusion-webui/models/Lora/smile.safetensors
 
 
 RUN echo 'echo "Installing dependencies..."' > ~/.bashrc
-RUN git clone https://github.com/kohya-ss/sd-scripts.git && \
-  cd sd-scripts && \
+RUN git clone https://github.com/kohya-ss/sd-scripts.git /sd-scripts && \
+  cd /sd-scripts && \
   python3.10 -m venv lora && \
   source lora/bin/activate && \
   pip install --upgrade pip && \
@@ -40,8 +40,8 @@ RUN echo 'pip install --upgrade pip' > /conceptmod/installdeps.sh && \
     echo 'cd /taming-transformers' >> /conceptmod/installdeps.sh && \
     echo 'python setup.py develop > /dev/null 2>&1' >> /conceptmod/installdeps.sh && \
     echo 'source /workspace/conceptmod/installdeps.sh > /dev/null 2>&1' >> ~/.bashrc && \
-    echo 'rsync -a --remove-source-files /conceptmod/* /workspace/conceptmod/ && cd /workspace/conceptmod' >> ~/.bashrc
-# echo 'mv /conceptmod/sd-scripts /workspace && cd /workspace/sd-scripts' >> ~/.bashrc && \
+    echo 'rsync -a --remove-source-files /conceptmod/* /workspace/conceptmod/ && cd /workspace/conceptmod' >> ~/.bashrc && \
+    echo 'rsync -a --remove-source-files /sd-scripts /workspace/conceptmod/sd-scripts' >> ~/.bashrc
 # echo 'ln -s /workspace/conceptmod/models /workspace/stable-diffusion-webui/models/Stable-diffusion/conceptmod' >> ~/.bashrc && \
 
 RUN echo 'echo "Welcome to conceptmod. Train on a phrase or animate a lora."' >> /root/.bashrc
