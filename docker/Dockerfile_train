@@ -39,8 +39,8 @@ RUN echo 'pip install --upgrade pip' > /conceptmod/installdeps.sh && \
     echo 'python setup.py develop > /dev/null 2>&1' >> /conceptmod/installdeps.sh && \
     echo 'cd /taming-transformers' >> /conceptmod/installdeps.sh && \
     echo 'python setup.py develop > /dev/null 2>&1' >> /conceptmod/installdeps.sh && \
-    echo 'source /conceptmod/installdeps.sh > /dev/null 2>&1' >> ~/.bashrc && \
-    echo 'mv /conceptmod/* /workspace/conceptmod && cd /workspace/conceptmod' >> ~/.bashrc
+    echo 'source /workspace/conceptmod/installdeps.sh > /dev/null 2>&1' >> ~/.bashrc && \
+    echo 'rsync -a --remove-source-files /conceptmod/* /workspace/conceptmod/ && cd /workspace/conceptmod' >> ~/.bashrc
 # echo 'mv /conceptmod/sd-scripts /workspace && cd /workspace/sd-scripts' >> ~/.bashrc && \
 # echo 'ln -s /workspace/conceptmod/models /workspace/stable-diffusion-webui/models/Stable-diffusion/conceptmod' >> ~/.bashrc && \
 
