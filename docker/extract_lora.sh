@@ -21,8 +21,9 @@ for file in "${dir}/"*; do
     # Remove special characters from the filename
     clean_filename=$(echo "${filename}" | tr -d '|~#:')
 
-    # Set the target file path
-    target="$dir/${clean_filename}.safetensors"
+    dir_replaced=$(echo "$dir" | sed 's/\/models\//\/Lora\//')
+    mkdir -p "$dir_replaced"
+    target="$dir_replaced/${clean_filename}.safetensors"
 
     # Check if the target file exists; if it does, skip the command
     if [ ! -f "${target}" ]; then
