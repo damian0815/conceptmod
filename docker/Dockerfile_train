@@ -34,6 +34,7 @@ RUN echo 'echo " - - - this may take a minute - - - "' >> /root/.bashrc
 RUN echo 'pip install --upgrade pip' > /conceptmod/installdeps.sh && \
     echo 'pip install omegaconf einops torchmetrics datasets torch torchvision numpy scipy scikit-image scikit-learn tqdm lmdb' >> /conceptmod/installdeps.sh && \
     echo 'pip install imageio moviepy opencv-python ftfy datasets scikit-image' >> /conceptmod/installdeps.sh && \
+    echo 'pip install safetensors diffusers transformers pytorch_lightning==1 kornia matplotlib' >> /conceptmod/installdeps.sh && \
     echo 'pip install git+https://github.com/openai/CLIP.git@main#egg=clip' >> /conceptmod/installdeps.sh && \
     echo 'cd /conceptmod/ImageReward' >> /conceptmod/installdeps.sh && \
     echo 'python setup.py develop > /dev/null 2>&1' >> /conceptmod/installdeps.sh && \
@@ -41,18 +42,18 @@ RUN echo 'pip install --upgrade pip' > /conceptmod/installdeps.sh && \
     echo 'python setup.py develop > /dev/null 2>&1' >> /conceptmod/installdeps.sh && \
     echo 'source /workspace/conceptmod/installdeps.sh > /dev/null 2>&1' >> ~/.bashrc && \
     echo 'rsync -a --remove-source-files /conceptmod/* /workspace/conceptmod/ && cd /workspace/conceptmod' >> ~/.bashrc && \
-    echo 'rsync -a --remove-source-files /sd-scripts /workspace/conceptmod/sd-scripts' >> ~/.bashrc
+    echo 'rsync -a --remove-source-files /sd-scripts/* /workspace/conceptmod/sd-scripts' >> ~/.bashrc
 # echo 'ln -s /workspace/conceptmod/models /workspace/stable-diffusion-webui/models/Stable-diffusion/conceptmod' >> ~/.bashrc && \
 
 RUN echo 'echo "Welcome to conceptmod. Train on a phrase or animate a lora."' >> /root/.bashrc
-RUN echo 'echo "https://civitai.com/tag/conceptmod?sort=Newest has example phrases in the model descriptions."' >> /root/.bashrc
-RUN echo 'echo "https://github.com/ntc-ai/conceptmod has more documentation."' >> /root/.bashrc
 RUN echo 'echo ""' >> /root/.bashrc
-RUN echo 'echo "Transfer your chosen checkpoint in safetensors format to /workspace/stable-diffusion-webui/models/Stable-diffusion/mycheckpoint.safetensors then select it within A111 (In the Connect -> Connect via HTTP (Port 3000))"' >> /root/.bashrc
+RUN echo 'echo "Usage tutorial here: https://civitai.com/models/58873"' >> /root/.bashrc
+RUN echo 'echo "Examples: https://civitai.com/tag/conceptmod?sort=Newest"' >> /root/.bashrc
+RUN echo 'echo "Documentation: https://github.com/ntc-ai/conceptmod"' >> /root/.bashrc
 RUN echo 'echo ""' >> /root/.bashrc
-RUN echo 'echo "Example training command: python3 train-scripts/train-esd.py --prompt \"~laugh\" --train_method selfattn --ckpt_path /workspace/stable-diffusion-webui/models/Stable-diffusion/mycheckpoint.safetensors"' >> /root/.bashrc
+RUN echo 'echo "To train: python3 train-scripts/train-esd.py --prompt \"~laugh\" --train_method selfattn --ckpt_path /workspace/stable-diffusion-webui/models/Stable-diffusion/mycheckpoint.safetensors"' >> /root/.bashrc
 RUN echo 'echo ""' >> /root/.bashrc
-RUN echo 'echo "Example animation command: python3 lora_anim.py -s 0 -e 2 -l smile -lp \", smile\""' >> /root/.bashrc
+RUN echo 'echo "To animate: python3 lora_anim.py -s 0 -e 2 -l smile -lp \", smile\""' >> /root/.bashrc
 
 
 # Update the relauncher.py script to add --api flag

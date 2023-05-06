@@ -8,6 +8,7 @@ fi
 
 cd /workspace/conceptmod/sd-scripts
 source lora/bin/activate
+export PYTHONPATH=/workspace/conceptmod/sd-scripts:$PYTHONPATH
 # Set the directory path
 dir="/workspace/stable-diffusion-webui/models/Stable-diffusion/conceptmod"
 mkdir -p "$dir"
