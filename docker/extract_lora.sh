@@ -26,7 +26,7 @@ for file in "${dir}/"*; do
     # Remove special characters from the filename
     clean_filename=$(echo "${filename}" | tr -d '|~#:')
 
-    target="/workspace/stable-diffusion-webui/Lora/${clean_filename}.safetensors"
+    target="/workspace/stable-diffusion-webui/models/Lora/${clean_filename}.safetensors"
 
     # Check if the target file exists; if it does, skip the command
     if [ ! -f "${target}" ]; then
