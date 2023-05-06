@@ -34,15 +34,19 @@ RUN echo 'echo " - - - this may take a minute - - - "' >> /root/.bashrc
 RUN echo 'pip install --upgrade pip' > /conceptmod/installdeps.sh && \
     echo 'pip install omegaconf einops torchmetrics datasets torch torchvision numpy scipy scikit-image scikit-learn tqdm lmdb' >> /conceptmod/installdeps.sh && \
     echo 'pip install imageio moviepy opencv-python ftfy datasets scikit-image' >> /conceptmod/installdeps.sh && \
-    echo 'pip install safetensors diffusers transformers pytorch_lightning==1 kornia matplotlib' >> /conceptmod/installdeps.sh && \
+    echo 'pip install kornia' >> /conceptmod/installdeps.sh && \
     echo 'pip install git+https://github.com/openai/CLIP.git@main#egg=clip' >> /conceptmod/installdeps.sh && \
-    echo 'cd /conceptmod/ImageReward' >> /conceptmod/installdeps.sh && \
+    echo 'cd /workspace/conceptmod/ImageReward' >> /conceptmod/installdeps.sh && \
     echo 'python setup.py develop > /dev/null 2>&1' >> /conceptmod/installdeps.sh && \
     echo 'cd /taming-transformers' >> /conceptmod/installdeps.sh && \
     echo 'python setup.py develop > /dev/null 2>&1' >> /conceptmod/installdeps.sh && \
-    echo 'source /workspace/conceptmod/installdeps.sh > /dev/null 2>&1' >> ~/.bashrc && \
+    echo '(cd /workspace/conceptmod/sd-scripts && source lora/bin/activate && pip install --upgrade pip && pip install torch torchvision torchaudio -f https://download.pytorch.org/whl/cu117/torch_stable.html && pip install -r requirements.txt)' >> /conceptmod/installdeps.sh && \
+    echo 'cd /workspace/conceptmod' >> /conceptmod/installdeps.sh && \
+    echo '[[ $- != *i* ]] || [ -f "$HOME/.first_login_complete" ] && return' >> ~/.bashrc && \
     echo 'rsync -a --remove-source-files /conceptmod/* /workspace/conceptmod/ && cd /workspace/conceptmod' >> ~/.bashrc && \
-    echo 'rsync -a --remove-source-files /sd-scripts/* /workspace/conceptmod/sd-scripts' >> ~/.bashrc
+    echo 'rsync -a --remove-source-files /sd-scripts/* /workspace/conceptmod/sd-scripts' >> ~/.bashrc && \
+    echo 'source /workspace/conceptmod/installdeps.sh > /dev/null 2>&1' >> ~/.bashrc && \
+    echo 'touch $HOME/.first_login_complete' >> ~/.bashrc
 # echo 'ln -s /workspace/conceptmod/models /workspace/stable-diffusion-webui/models/Stable-diffusion/conceptmod' >> ~/.bashrc && \
 
 RUN echo 'echo "Welcome to conceptmod. Train on a phrase or animate a lora."' >> /root/.bashrc
