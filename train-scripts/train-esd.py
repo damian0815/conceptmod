@@ -372,7 +372,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
     opt = torch.optim.Adam(parameters, lr=lr)
 
 
-    criteria = torch.nn.SmoothL1Loss()
+    criteria = torch.nn.MSELoss()
 
     history = []
 
@@ -460,13 +460,12 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                     e_0 = apply_model_cache(model_orig, '', z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]), cache)
                     e_o = apply_model_cache(model_orig, target_concept, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_t.to(devices[1]), cache)
 
-                    e_02 = apply_model_cache(model, '', z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_0.to(devices[0]), cache)
 
                 # Get conditional scores from ESD model for the original concept
                 e_t = apply_model_cache(model, original_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]), cache, grad=True)
 
                 # Compute the loss function for concept replacement
-                loss_replacement = criteria(e_t.to(devices[0]), e_02.to(devices[0])) - (negative_guidance * (e_o.to(devices[0])- e_0.to(devices[0])))
+                loss_replacement = criteria(e_t.to(devices[0]), e_0.to(devices[0])) - (negative_guidance * (e_o.to(devices[0])- e_0.to(devices[0])))
                 loss_rule = rule_obj['alpha']*loss_replacement.mean()
                 rule_losses.append(loss_rule)
 
