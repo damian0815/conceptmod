@@ -531,8 +531,10 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 concept_to_insert = rule[:-2]
                 if rule[:-2] == '--':
                     guide = - insertion_guidance
+                    _start_guidance = - start_guidance
                 else:
                     guide = insertion_guidance
+                    _start_guidance = start_guidance
 
                 # Get text embeddings for unconditional and conditional prompts
                 emb_0 = model.get_learned_conditioning([''])
@@ -540,7 +542,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
                 with torch.no_grad():
                     # Generate an image from ESD model
-                    z = quick_sample_till_t(emb_0.to(devices[0]), guide*start_guidance, start_code, int(t_enc))
+                    z = quick_sample_till_t(emb_0.to(devices[0]), _start_guidance, start_code, int(t_enc))
 
                     # Get conditional and unconditional scores from frozen model at time step t and image z
                     e_0 = apply_model_cache(model_orig, '', z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]), cache)
