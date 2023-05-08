@@ -529,12 +529,12 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
             elif '++' == rule[-2:] or rule[-2:] == '--':
                 # Handle the concept insertion case (concept++)
                 concept_to_insert = rule[:-2]
-                if rule[:-2] == '--':
-                    guide = - insertion_guidance
-                    _start_guidance = - start_guidance
+                if rule[-2:] == '--':
+                    guide = -insertion_guidance
+                    _start_guidance = -start_guidance
                 else:
                     guide = insertion_guidance
-                    _start_guidance = start_guidance
+                    _start_guidance = -start_guidance
 
                 # Get text embeddings for unconditional and conditional prompts
                 emb_0 = model.get_learned_conditioning([''])
