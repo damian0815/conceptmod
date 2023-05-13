@@ -403,9 +403,6 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
         key = generate_cache_key(model, emb_text, grad)
         if grad or key not in cache:
             cache[key] = model.apply_model(z, t_enc_ddpm, emb)
-            print("Key not in cache", key)
-        else:
-            print("Found key in cache", key)
         return cache[key]
 
     for i in pbar:
@@ -442,12 +439,12 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
             if '=' in rule:
                 # Handle the concept replacement case (original=target)
                 concepts = rule.split('=')
-                original_concept = concepts[0]
+                trainable_concept = concepts[0]
                 target_concept = concepts[1]
 
                 # Get text embeddings for unconditional and conditional prompts
                 emb_0 = model.get_learned_conditioning([''])
-                emb_o = model.get_learned_conditioning([original_concept])
+                emb_o = model.get_learned_conditioning([trainable_concept])
                 emb_t = model.get_learned_conditioning([target_concept])
 
                 assert target_concept != ""
@@ -462,7 +459,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
 
                 # Get conditional scores from ESD model for the original concept
-                e_t = apply_model_cache(model, original_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]), cache, grad=True)
+                e_t = apply_model_cache(model, trainable_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]), cache, grad=True)
 
                 # Compute the loss function for concept replacement
                 loss_replacement = criteria(e_t.to(devices[0]), e_0.to(devices[0])) - (negative_guidance * (e_o.to(devices[0])- e_0.to(devices[0])))
@@ -471,17 +468,17 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
             elif '#' in rule:
                 concepts = rule.split('#')
-                original_concept = concepts[0]
+                trainable_concept = concepts[0]
                 target_concept = concepts[1]
 
-                emb_o = model.get_learned_conditioning([original_concept])
+                emb_o = model.get_learned_conditioning([trainable_concept])
                 emb_t = model.get_learned_conditioning([target_concept])
 
                 with torch.no_grad():
                     z = quick_sample_till_t(emb_t.to(devices[0]), start_guidance, start_code, int(t_enc))
                     e_o = apply_model_cache(model_orig, target_concept, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_t.to(devices[1]), cache)
 
-                e_t = apply_model_cache(model, original_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]), cache, grad=True)
+                e_t = apply_model_cache(model, trainable_concept, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_o.to(devices[0]), cache, grad=True)
 
                 loss_replacement = criteria(e_t.to(devices[0]), e_o.to(devices[0]))
                 loss_rule = rule_obj['alpha']*loss_replacement.mean()
@@ -526,15 +523,11 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
 
 
-            elif '++' == rule[-2:] or rule[-2:] == '--':
+            elif rule[-2:] == '++':
                 # Handle the concept insertion case (concept++)
                 concept_to_insert = rule[:-2]
-                if rule[-2:] == '--':
-                    guide = -insertion_guidance
-                    _start_guidance = -start_guidance
-                else:
-                    guide = insertion_guidance
-                    _start_guidance = -start_guidance
+                guide = -insertion_guidance
+                _start_guidance = start_guidance
 
                 # Get text embeddings for unconditional and conditional prompts
                 emb_0 = model.get_learned_conditioning([''])
@@ -544,14 +537,40 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                     # Generate an image from ESD model
                     z = quick_sample_till_t(emb_0.to(devices[0]), _start_guidance, start_code, int(t_enc))
 
-                    # Get conditional and unconditional scores from frozen model at time step t and image z
+                    e_o = apply_model_cache(model_orig, concept_to_insert, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_i.to(devices[1]), cache)
                     e_0 = apply_model_cache(model_orig, '', z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]), cache)
-                    e_i = apply_model_cache(model_orig, concept_to_insert, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_i.to(devices[1]), cache)
+                    e_02 = apply_model_cache(model, '', z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_0.to(devices[0]), cache)
+
+                # Get conditional scores from ESD model for the concept to insert
+                e_t = apply_model_cache(model, concept_to_insert, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_i.to(devices[0]), cache, grad=True)
+                if "guidance" in rule_obj:
+                    guide=rule_obj["guidance"]
+                target_diff = (e_o - e_0)**2*guide
+                diff = (e_t-e_02)**2
+                loss_i = torch.relu(target_diff - diff)
+                loss_rule = rule_obj["alpha"]*loss_i.mean()
+                rule_losses.append(loss_rule)
+
+            elif rule[-2:] == '--':
+                # Handle the concept insertion case (concept++)
+                concept_to_insert = rule[:-2]
+                guide = -insertion_guidance
+                _start_guidance = -start_guidance
+
+                # Get text embeddings for unconditional and conditional prompts
+                emb_0 = model.get_learned_conditioning([''])
+                emb_i = model.get_learned_conditioning([concept_to_insert])
+
+                with torch.no_grad():
+                    # Generate an image from ESD model
+                    z = quick_sample_till_t(emb_0.to(devices[0]), _start_guidance, start_code, int(t_enc))
+
+                    e_02 = apply_model_cache(model, '', z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_0.to(devices[0]), cache)
 
                 # Get conditional scores from ESD model for the concept to insert
                 e_t = apply_model_cache(model, concept_to_insert, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_i.to(devices[0]), cache, grad=True)
 
-                loss_i = criteria(e_t.to(devices[0]), e_0.to(devices[0])) - (guide * (e_i.to(devices[0]) - e_0.to(devices[0])))
+                loss_i = criteria(e_t.to(devices[0]), e_02.to(devices[0]))
                 loss_rule = rule_obj["alpha"]*loss_i.mean()
                 rule_losses.append(loss_rule)
 
@@ -572,7 +591,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                     e_0 = apply_model_cache(model_orig, '', z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_0.to(devices[1]), cache)
                     output_c1 = apply_model_cache(model_orig, concept1, z.to(devices[1]), t_enc_ddpm.to(devices[1]), emb_c1.to(devices[1]), cache)
 
-                    e_02 = apply_model_cache(model, '', z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_0.to(devices[0]), cache)
+                e_02 = apply_model_cache(model, '', z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_0.to(devices[0]), cache)
                 # Get conditional scores from ESD model for the two concepts
                 output_c2 = apply_model_cache(model, concept2, z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_c2.to(devices[0]), cache, grad=True)
                 diff_c1 = output_c1 - e_0
