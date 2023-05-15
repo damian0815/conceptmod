@@ -357,7 +357,9 @@ def main():
     #print("Smoothing frames. This may take a while (deleting repeat sequences")
     generated_images = smooth(images)
     print("Before smoothing:", len(images), "frames after:", len(generated_images), "frames")
-    if len(images) != len(generated_images):
+    if args.reverse:
+        generated_images = list(reversed(generated_images))
+    if args.reverse or len(images) != len(generated_images):
         for filename in os.listdir(folder):
             if filename.endswith(".png"):
                 os.unlink(os.path.join(folder, filename))
@@ -366,13 +368,11 @@ def main():
             image.save(os.path.join(folder, f"image_{i+1:04d}.png"))
 
     # Create an animated movie
-    fps = len(generated_images)//5
+    fps = len(generated_images)//3
     if(fps ==0):
         fps = 1
     print("Generated", len(generated_images), "fps", fps)
 
-    if args.reverse:
-        generated_images = reversed(generated_images)
     video_index = create_animated_movie(folder, "v4", fps=fps)
 
     # Save details to a JSON file
@@ -405,7 +405,7 @@ def create_animated_movie(images_folder, output_folder, fps=15):
 
     # Create a 2-second end frame
     end_frame = ImageSequenceClip([image_filepaths[-1]], fps=fps)
-    end_frame = end_frame.set_duration(2)  # Set the duration of the end frame to 2 seconds
+    end_frame = end_frame.set_duration(1)  # Set the duration of the end frame to 2 seconds
 
     # Create a fade out to black effect
     fade_out = vfx.fadeout(end_frame, 0.5)  # 1-second fade-out duration
