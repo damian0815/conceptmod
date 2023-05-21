@@ -173,7 +173,9 @@ def get_models(config_path, ckpt_path, devices):
     model = load_model_from_config(config_path, ckpt_path, devices[0])
     sampler = DDIMSampler(model)
 
-    return model_orig, sampler_orig, model, sampler
+    model2 = load_model_from_config(config_path, ckpt_path, devices[0])
+
+    return model_orig, sampler_orig, model, sampler, model2
 
 def parse_input_string(input_str):
     params = {
@@ -267,7 +269,7 @@ def move_towards(target_model, source_model, alpha=0.3):
     target_model.load_state_dict(target_state)
 
 
-def train_esd(prompt, train_method, start_guidance, negative_guidance, iterations, lr, config_path, ckpt_path, diffusers_config_path, devices, seperator=None, image_size=512, ddim_steps=50, sample_prompt=None, accumulation_steps=1, randomly_pull_prompts=False, merge_speed=0.05, merge_every=0):
+def train_esd(prompt, train_method, start_guidance, negative_guidance, iterations, lr, config_path, ckpt_path, diffusers_config_path, devices, seperator=None, image_size=512, ddim_steps=50, sample_prompt=None, accumulation_steps=1, randomly_pull_prompts=False, merge_speed=0.05, merge_every=0, save_opposite=False):
     '''
     Function to train diffusion models to erase concepts from model weights
 
@@ -320,7 +322,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
     ddim_eta = 0
     # MODEL TRAINING SETUP
 
-    model_orig, sampler_orig, model, sampler = get_models(config_path, ckpt_path, devices)
+    model_orig, sampler_orig, model, sampler, opposite_model = get_models(config_path, ckpt_path, devices)
 
     # choose parameters to train based on train_method
     parameters = []
@@ -421,7 +423,6 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
         og_num = round((int(t_enc)/ddim_steps)*1000)
         og_num_lim = round((int(t_enc+1)/ddim_steps)*1000)
         t_enc_ddpm = torch.randint(og_num, og_num_lim, (1,), device=devices[0])
-        insertion_guidance=negative_guidance
 
 
         cache.clear()
@@ -526,7 +527,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
             elif rule[-2:] == '++':
                 # Handle the concept insertion case (concept++)
                 concept_to_insert = rule[:-2]
-                guide = -insertion_guidance
+                guide = -negative_guidance
                 _start_guidance = start_guidance
 
                 # Get text embeddings for unconditional and conditional prompts
@@ -546,7 +547,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 if "guidance" in rule_obj:
                     guide=rule_obj["guidance"]
                 target_diff = (e_o - e_0)**2*guide
-                diff = (e_t-e_02)**2
+                diff = (e_t-e_02.to(devices[0]))**2
                 loss_i = torch.relu(target_diff - diff)
                 loss_rule = rule_obj["alpha"]*loss_i.mean()
                 rule_losses.append(loss_rule)
@@ -554,8 +555,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
             elif rule[-2:] == '--':
                 # Handle the concept insertion case (concept++)
                 concept_to_insert = rule[:-2]
-                guide = -insertion_guidance
-                _start_guidance = -start_guidance
+                guide = negative_guidance
 
                 # Get text embeddings for unconditional and conditional prompts
                 emb_0 = model.get_learned_conditioning([''])
@@ -563,7 +563,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
 
                 with torch.no_grad():
                     # Generate an image from ESD model
-                    z = quick_sample_till_t(emb_0.to(devices[0]), _start_guidance, start_code, int(t_enc))
+                    z = quick_sample_till_t(emb_0.to(devices[0]), start_guidance, start_code, int(t_enc))
 
                     e_02 = apply_model_cache(model, '', z.to(devices[0]), t_enc_ddpm.to(devices[0]), emb_0.to(devices[0]), cache)
 
@@ -600,8 +600,8 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
                 diff_c1_flat = diff_c1.view(1, -1)
                 diff_c2_flat = diff_c2.view(1, -1)
                 # Normalize the output embeddings
-                normalized_output_c1 = diff_c1_flat / (torch.norm(diff_c1_flat, dim=1, keepdim=True)+1e-8)
-                normalized_output_c2 = diff_c2_flat / (torch.norm(diff_c2_flat, dim=1, keepdim=True)+1e-8)
+                normalized_output_c1 = diff_c1_flat / (torch.norm(diff_c1_flat, dim=1, keepdim=True)+1e-12)
+                normalized_output_c2 = diff_c2_flat / (torch.norm(diff_c2_flat, dim=1, keepdim=True)+1e-12)
 
                 # Calculate the cosine similarity between the normalized output embeddings
                 cosine_similarity = torch.abs(torch.dot(normalized_output_c1.view(-1).to(devices[0]), normalized_output_c2.view(-1).to(devices[0])))
@@ -654,11 +654,20 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
             opt.zero_grad()
             if sample_prompt is not None:
                 os.makedirs("samples/"+name, exist_ok=True)
-                sample_image("samples/"+name, model, sampler, sample_start_code, sample_emb, (accumulation_counter//accumulation_steps), ddim_steps, save=True)
-
 
         # save checkpoint and loss curve
-        if (i+1) % 300 == 0 and i+1 != iterations and i+1>= 20:
+        if i == iterations-1 or (i+1) % 300 == 0:
+            if save_opposite:
+                target_state = model.state_dict()
+                source_state = model_orig.state_dict()
+                opposite_state = opposite_model.state_dict()
+
+                for key in target_state:
+                    opposite_state[key] = 2*source_state[key] - target_state[key]
+
+                opposite_model.load_state_dict(opposite_state)
+
+                save_model(opposite_model, "opp-"+name, i-1, save_compvis=True, save_diffusers=False)
             save_model(model, name, i-1, save_compvis=True, save_diffusers=False)
 
         if i % 100 == 0:
@@ -702,8 +711,8 @@ if __name__ == '__main__':
                     description = 'Finetuning stable diffusion model to erase concepts using ESD method')
     parser.add_argument('--prompt', help='prompt corresponding to concept to erase', type=str, required=True)
     parser.add_argument('--train_method', help='method of training', type=str, required=True)
-    parser.add_argument('--start_guidance', help='guidance of start image used to train', type=float, required=False, default=-3)
-    parser.add_argument('--negative_guidance', help='guidance of negative training used to train', type=float, required=False, default=-1.5)
+    parser.add_argument('--start_guidance', help='guidance of start image used to train', type=float, required=False, default=3.0)
+    parser.add_argument('--negative_guidance', help='guidance of negative training used to train', type=float, required=False, default=-3.0)
     parser.add_argument('--iterations', help='iterations used to train', type=int, required=False, default=1000)
     parser.add_argument('--lr', help='learning rate used to train', type=int, required=False, default=1e-5)
     parser.add_argument('--config_path', help='config path for stable diffusion v1-4 inference', type=str, required=False, default='configs/stable-diffusion/v1-inference.yaml')
@@ -716,6 +725,7 @@ if __name__ == '__main__':
     parser.add_argument('--accumulation_steps', help='gradient accumulation steps', type=int, required=False, default=2)
     parser.add_argument('--sample_prompt', help='will create training images with this phrase as SD trains. This requires running through SD and is slower.', type=str, required=False, default=None)
     parser.add_argument('--randomly_pull_prompts', help='pull unconditional towards "Gustavosta/Stable-Diffusion-Prompts".', type=bool, required=False, default=False)
+    parser.add_argument('--save_opposite', action='store_true', default=False)
     parser.add_argument('--merge_speed', help='Speed at which to merge the old model to the new model.', type=float, required=False, default=0.05)
     parser.add_argument('--merge_every', help='Step count before merging to new model. 0 is off', type=float, required=False, default=0)
     args = parser.parse_args()
@@ -737,4 +747,4 @@ if __name__ == '__main__':
     merge_speed = args.merge_speed
     merge_every = args.merge_every
 
-    train_esd(prompt=prompt, train_method=train_method, start_guidance=start_guidance, negative_guidance=negative_guidance, iterations=iterations, lr=lr, config_path=config_path, ckpt_path=ckpt_path, diffusers_config_path=diffusers_config_path, devices=devices, seperator=seperator, image_size=image_size, ddim_steps=ddim_steps, sample_prompt=sample_prompt, accumulation_steps=args.accumulation_steps, randomly_pull_prompts=args.randomly_pull_prompts, merge_speed=merge_speed, merge_every=merge_every)
+    train_esd(prompt=prompt, train_method=train_method, start_guidance=start_guidance, negative_guidance=negative_guidance, iterations=iterations, lr=lr, config_path=config_path, ckpt_path=ckpt_path, diffusers_config_path=diffusers_config_path, devices=devices, seperator=seperator, image_size=image_size, ddim_steps=ddim_steps, sample_prompt=sample_prompt, accumulation_steps=args.accumulation_steps, randomly_pull_prompts=args.randomly_pull_prompts, merge_speed=merge_speed, merge_every=merge_every, save_opposite=args.save_opposite)
