@@ -53,12 +53,12 @@ def generate_image(prompt, negative_prompt, lora):
 
     data = {
         "seed": seed,
-        "width": 512,
+        "width": 768,
         "height": 512,
-        "sampler_name": "Euler",
+        "sampler_name": "DDIM",
         "prompt": prompt_,
         "negative_prompt": nprompt_,
-        "steps": 28
+        "steps": 50
     }
     #print(" calling: ", prompt_)
 
@@ -280,6 +280,8 @@ def find_best_seed(prompt, negative_prompt, num_seeds=10, steps=2, max_compare=2
 
     for _ in range(num_seeds):
         seed = random.SystemRandom().randint(0, 2**32-1)
+        if num_seeds == 1:
+            return seed, 0,0,0
         image_cache = {}
 
         # Generate images with steps=2 and max_compare=-0.0
@@ -324,6 +326,7 @@ def main():
     parser.add_argument('-pp', '--prompt_addendum', type=str, default="", help='add this to the end of prompts')
     parser.add_argument('-p', '--prompt', type=str, default=None, help='Prompt, defaults to random from Gustavosta/Stable-Diffusion-Prompts')
     parser.add_argument('-f', '--folder', type=str, default="anim", help='Working directory')
+    parser.add_argument('--loop', help='loops the animation.', type=bool, required=False, default=False)
     parser.add_argument('-url', '--text_to_image_url', type=str, default="http://localhost:3000/sdapi/v1/txt2img", help='Url for text to image')
     args = parser.parse_args()
 
@@ -355,8 +358,9 @@ def main():
     seed = best_seed  # Set the best seed as the current seed
     images = find_images(prompt, negative_prompt, args.lora_start, args.lora_end, args.steps, args.max_compare, args.tolerance, args.budget)
     #print("Smoothing frames. This may take a while (deleting repeat sequences")
-    generated_images = smooth(images)
-    print("Before smoothing:", len(images), "frames after:", len(generated_images), "frames")
+    #generated_images = smooth(images)
+    #print("Before smoothing:", len(images), "frames after:", len(generated_images), "frames")
+    generated_images = list(images)
     if args.reverse:
         generated_images = list(reversed(generated_images))
     if args.reverse or len(images) != len(generated_images):
@@ -373,8 +377,6 @@ def main():
         fps = 1
     print("Generated", len(generated_images), "fps", fps)
 
-    video_index = create_animated_movie(folder, "v4", fps=fps)
-
     # Save details to a JSON file
     details = {
         "seed": best_seed,
@@ -389,12 +391,18 @@ def main():
         "score2": score2,
         "best_score": best_score
     }
+    output_folder = "v4"
+    video_index = 1
+    while os.path.exists(f"{output_folder}/{video_index}.mp4"):
+        video_index += 1
 
     with open(f"v4/{video_index}.json", "w") as f:
         json.dump(details, f)
 
+    create_animated_movie(folder, output_folder, video_index, fps=fps, loop=args.loop)
+
 # Function to create an animated movie
-def create_animated_movie(images_folder, output_folder, fps=15):
+def create_animated_movie(images_folder, output_folder, video_index, fps=15, loop=False):
     os.makedirs(output_folder, exist_ok=True)
 
     # Create a list of filepaths for the images in the folder directory
@@ -403,28 +411,28 @@ def create_animated_movie(images_folder, output_folder, fps=15):
     # Create a clip from the image sequence
     clip = ImageSequenceClip(image_filepaths, fps=fps)  # Adjust fps value to control animation speed
 
-    # Create a 2-second end frame
-    end_frame = ImageSequenceClip([image_filepaths[-1]], fps=fps)
-    end_frame = end_frame.set_duration(1)  # Set the duration of the end frame to 2 seconds
+    if not loop:
+        # Create a 2-second end frame
+        end_frame = ImageSequenceClip([image_filepaths[-1]], fps=fps)
+        end_frame = end_frame.set_duration(1)  # Set the duration of the end frame to 2 seconds
 
-    # Create a fade out to black effect
-    fade_out = vfx.fadeout(end_frame, 0.5)  # 1-second fade-out duration
+        # Create a fade out to black effect
+        fade_out = vfx.fadeout(end_frame, 0.5)  # 1-second fade-out duration
 
-    start_frame = ImageSequenceClip([image_filepaths[0]], fps=fps)
-    # Create a fade in from black to the first frame
-    fade_in = vfx.fadein(start_frame, 0.5)
+        start_frame = ImageSequenceClip([image_filepaths[0]], fps=fps)
+        # Create a fade in from black to the first frame
+        fade_in = vfx.fadein(start_frame, 0.5)
 
-    # Concatenate the clips, fade out, and fade in
-    final_clip = concatenate_videoclips([clip, end_frame, fade_out, fade_in])
-    # Find the next available video file index
-    video_index = 1
-    while os.path.exists(f"{output_folder}/{video_index}.mp4"):
-        video_index += 1
+        # Concatenate the clips, fade out, and fade in
+        final_clip = concatenate_videoclips([clip, end_frame, fade_out, fade_in])
+    else:
+        # Create a clip from the image sequence
+        end_clip = ImageSequenceClip(list(reversed(image_filepaths)), fps=fps)  # Adjust fps value to control animation speed
+        final_clip = concatenate_videoclips([clip, end_clip])
 
     print("Writing mp4", len(image_filepaths), "images to", f"{output_folder}/{video_index}.mp4")
     # Save the clip as a high-quality GIF
     final_clip.write_videofile(f"{output_folder}/{video_index}.mp4", codec="libx264", audio=False)
-    return video_index
 
 if __name__ == '__main__':
     main()
