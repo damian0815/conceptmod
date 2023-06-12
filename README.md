@@ -1,4 +1,4 @@
-See my custom models at [https://civitai.com/user/ntc](https://civitai.com/user/ntc)
+See my custom models at [https://ntcai.xys](https://ntcai.xyz) and [https://civitai.com/user/ntc](https://civitai.com/user/ntc)
 
 Based on 'Erasing Concepts from Diffusion Models' [https://erasing.baulab.info](https://erasing.baulab.info)
 
