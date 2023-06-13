@@ -173,9 +173,7 @@ def get_models(config_path, ckpt_path, devices):
     model = load_model_from_config(config_path, ckpt_path, devices[0])
     sampler = DDIMSampler(model)
 
-    model2 = load_model_from_config(config_path, ckpt_path, devices[0])
-
-    return model_orig, sampler_orig, model, sampler, model2
+    return model_orig, sampler_orig, model, sampler
 
 def parse_input_string(input_str):
     params = {
@@ -269,7 +267,7 @@ def move_towards(target_model, source_model, alpha=0.3):
     target_model.load_state_dict(target_state)
 
 
-def train_esd(prompt, train_method, start_guidance, negative_guidance, iterations, lr, config_path, ckpt_path, diffusers_config_path, devices, seperator=None, image_size=512, ddim_steps=50, sample_prompt=None, accumulation_steps=1, randomly_pull_prompts=False, merge_speed=0.05, merge_every=0, save_opposite=False):
+def train_esd(prompt, train_method, start_guidance, negative_guidance, iterations, lr, config_path, ckpt_path, diffusers_config_path, devices, seperator=None, image_size=512, ddim_steps=50, sample_prompt=None, accumulation_steps=1, randomly_pull_prompts=False, merge_speed=0.05, merge_every=0):
     '''
     Function to train diffusion models to erase concepts from model weights
 
@@ -322,7 +320,7 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
     ddim_eta = 0
     # MODEL TRAINING SETUP
 
-    model_orig, sampler_orig, model, sampler, opposite_model = get_models(config_path, ckpt_path, devices)
+    model_orig, sampler_orig, model, sampler = get_models(config_path, ckpt_path, devices)
 
     # choose parameters to train based on train_method
     parameters = []
@@ -654,20 +652,10 @@ def train_esd(prompt, train_method, start_guidance, negative_guidance, iteration
             opt.zero_grad()
             if sample_prompt is not None:
                 os.makedirs("samples/"+name, exist_ok=True)
+                sample_image("samples/"+name, model, sampler, sample_start_code, sample_emb, (accumulation_counter//accumulation_steps), ddim_steps, save=True)
 
         # save checkpoint and loss curve
-        if i == iterations-1 or (i+1) % 300 == 0:
-            if save_opposite:
-                target_state = model.state_dict()
-                source_state = model_orig.state_dict()
-                opposite_state = opposite_model.state_dict()
-
-                for key in target_state:
-                    opposite_state[key] = 2*source_state[key] - target_state[key]
-
-                opposite_model.load_state_dict(opposite_state)
-
-                save_model(opposite_model, "opp-"+name, i-1, save_compvis=True, save_diffusers=False)
+        if i == iterations-1 or (i+1) % 800 == 0:
             save_model(model, name, i-1, save_compvis=True, save_diffusers=False)
 
         if i % 100 == 0:
@@ -725,7 +713,6 @@ if __name__ == '__main__':
     parser.add_argument('--accumulation_steps', help='gradient accumulation steps', type=int, required=False, default=2)
     parser.add_argument('--sample_prompt', help='will create training images with this phrase as SD trains. This requires running through SD and is slower.', type=str, required=False, default=None)
     parser.add_argument('--randomly_pull_prompts', help='pull unconditional towards "Gustavosta/Stable-Diffusion-Prompts".', type=bool, required=False, default=False)
-    parser.add_argument('--save_opposite', action='store_true', default=False)
     parser.add_argument('--merge_speed', help='Speed at which to merge the old model to the new model.', type=float, required=False, default=0.05)
     parser.add_argument('--merge_every', help='Step count before merging to new model. 0 is off', type=float, required=False, default=0)
     args = parser.parse_args()
@@ -747,4 +734,4 @@ if __name__ == '__main__':
     merge_speed = args.merge_speed
     merge_every = args.merge_every
 
-    train_esd(prompt=prompt, train_method=train_method, start_guidance=start_guidance, negative_guidance=negative_guidance, iterations=iterations, lr=lr, config_path=config_path, ckpt_path=ckpt_path, diffusers_config_path=diffusers_config_path, devices=devices, seperator=seperator, image_size=image_size, ddim_steps=ddim_steps, sample_prompt=sample_prompt, accumulation_steps=args.accumulation_steps, randomly_pull_prompts=args.randomly_pull_prompts, merge_speed=merge_speed, merge_every=merge_every, save_opposite=args.save_opposite)
+    train_esd(prompt=prompt, train_method=train_method, start_guidance=start_guidance, negative_guidance=negative_guidance, iterations=iterations, lr=lr, config_path=config_path, ckpt_path=ckpt_path, diffusers_config_path=diffusers_config_path, devices=devices, seperator=seperator, image_size=image_size, ddim_steps=ddim_steps, sample_prompt=sample_prompt, accumulation_steps=args.accumulation_steps, randomly_pull_prompts=args.randomly_pull_prompts, merge_speed=merge_speed, merge_every=merge_every)
